@@ -4,8 +4,8 @@ Este projeto é um pipeline ETL (Extract, Transform, Load) focado na extração 
 
 ## 🚀 Status do Projeto
 
-Atualmente, o projeto avançou para a fase de **Transformação e Padronização**.
-Já implementamos scripts de inspeção e o módulo de limpeza (`cleaner.py`) que normaliza os dados brutos da API para o formato do DW.
+Atualmente, o projeto está na fase de **Carga e Persistência**.
+Além da transformação, já possuímos o loader (`postgres_loader.py`) capaz de salvar os dados no PostgreSQL com estratégia de UPSERT e auditoria (JSON bruto).
 
 ## 📂 Estrutura do Projeto
 
@@ -17,7 +17,8 @@ vetorial-etl/
 │   ├── ingestion/      # Scripts de extração (Em breve)
 │   ├── transformation/ # Scripts de transformação de dados
 │   │   └── cleaner.py  # Padronização e limpeza de dados
-│   ├── load/           # Scripts de carga (Em breve)
+│   ├── load/           # Scripts de carga
+│   │   └── postgres_loader.py # Carga no PostgreSQL (Upsert)
 │   └── utils/
 │       └── inspect_api.py  # Script de diagnóstico e inspeção da API
 ├── data/               # Diretório para dados temporários ou locais
@@ -64,6 +65,16 @@ Este módulo contém a classe `DataCleaner`, responsável por receber os dados b
     ```bash
     python src/transformation/cleaner.py
     ```
+
+### `src/load/postgres_loader.py`
+Gerencia a conexão e inserção de dados no banco PostgreSQL.
+*   **Funcionalidades:**
+    *   Conexão via `psycopg2` (Credenciais no `.env`).
+    *   **Estratégia UPSERT:** Inserção ou Atualização baseada no `hash_id` (Idempotência).
+    *   **Auditoria:** Salva o JSON original na coluna `raw_data`.
+    *   Tabela destino: `insights_meta_ads`.
+
+---
 
 ---
 
