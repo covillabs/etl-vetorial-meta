@@ -4,8 +4,8 @@ Este projeto é um pipeline ETL (Extract, Transform, Load) focado na extração 
 
 ## 🚀 Status do Projeto
 
-Atualmente, o projeto está na fase de **Descoberta e Mapeamento**.
-Já implementamos scripts de inspeção para entender a estrutura dos dados retornados pela API e definimos as regras de negócio para o mapeamento de métricas.
+Atualmente, o projeto avançou para a fase de **Transformação e Padronização**.
+Já implementamos scripts de inspeção e o módulo de limpeza (`cleaner.py`) que normaliza os dados brutos da API para o formato do DW.
 
 ## 📂 Estrutura do Projeto
 
@@ -15,7 +15,8 @@ vetorial-etl/
 ├── requirements.txt    # Dependências do projeto
 ├── src/
 │   ├── ingestion/      # Scripts de extração (Em breve)
-│   ├── transformation/ # Scripts de transformação de dados (Em breve)
+│   ├── transformation/ # Scripts de transformação de dados
+│   │   └── cleaner.py  # Padronização e limpeza de dados
 │   ├── load/           # Scripts de carga (Em breve)
 │   └── utils/
 │       └── inspect_api.py  # Script de diagnóstico e inspeção da API
@@ -38,7 +39,7 @@ vetorial-etl/
     Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
     ```env
     META_ACCESS_TOKEN=seu_token_v4
-    META_AD_ACCOUNT_ID=act_12345678,act_87654321
+    META_AD_ACCOUNT_ID=
     ```
 
 ## 🔍 Scripts Disponíveis
@@ -49,6 +50,19 @@ Este script realiza um diagnóstico inicial nas contas de anúncio configuradas.
 *   **Execução:**
     ```bash
     python src/utils/inspect_api.py
+    ```
+
+### `src/transformation/cleaner.py`
+Este módulo contém a classe `DataCleaner`, responsável por receber os dados brutos (JSON) da API e convertê-los em um DataFrame pandas estruturado.
+*   **Funcionalidades:**
+    *   Extração de métricas específicas de `actions` (leads, mensagens, etc).
+    *   Cálculo de métricas de vídeo (3s, 50%, 75%).
+    *   Criação de chaves únicas (`hash_id`) para deduplicação.
+    *   Padronização de tipos de dados (float, int).
+*   **Teste Isolado:**
+    O arquivo possui um bloco `main` para teste rápido.
+    ```bash
+    python src/transformation/cleaner.py
     ```
 
 ---
