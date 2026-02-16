@@ -1,97 +1,125 @@
 # Vetorial ETL - Facebook Ads Integration
 
-Este projeto é um pipeline ETL (Extract, Transform, Load) focado na extração e processamento de dados da API do Facebook Ads (Meta Marketing API).
+Este projeto é um pipeline ETL (Extract, Transform, Load) robusto, focado na extração e processamento de dados da API do Facebook Ads (Meta Marketing API). O pipeline está totalmente operacional e pronto para produção.
 
 ## 🚀 Status do Projeto
 
-Atualmente, o projeto está na fase de **Carga e Persistência**.
-Além da transformação, já possuímos o loader (`postgres_loader.py`) capaz de salvar os dados no PostgreSQL com estratégia de UPSERT e auditoria (JSON bruto).
+Atualmente, o projeto está na fase **Operacional**.
+O ciclo completo de ETL está implementado:
+
+- **Extração (E):** Baixa insights granulares por anúncio, plataforma e posicionamento.
+- **Transformação (T):** Limpa, padroniza e agrega métricas de conversão e vídeo.
+- **Carga (L):** Persiste os dados no PostgreSQL usando estratégia de UPSERT (idempotência).
 
 ## 📂 Estrutura do Projeto
 
 ```
 vetorial-etl/
-├── .env                # Variáveis de ambiente (Tokens, IDs)
+├── main.py             # Ponto de entrada (Executa o fluxo completo)
+├── Dockerfile          # Configuração para containerização
 ├── requirements.txt    # Dependências do projeto
+├── .env                # Variáveis de ambiente (Tokens, IDs, Banco)
 ├── src/
-│   ├── ingestion/      # Scripts de extração (Em breve)
+│   ├── ingestion/      # Scripts de extração
+│   │   └── extractor.py # Cliente da API da Meta
 │   ├── transformation/ # Scripts de transformação de dados
 │   │   └── cleaner.py  # Padronização e limpeza de dados
 │   ├── load/           # Scripts de carga
 │   │   └── postgres_loader.py # Carga no PostgreSQL (Upsert)
 │   └── utils/
-│       └── inspect_api.py  # Script de diagnóstico e inspeção da API
+│       ├── inspect_api.py   # Script de diagnóstico da API
+│       └── test_pipeline.py # Script de teste de integridade
 ├── data/               # Diretório para dados temporários ou locais
-└── note.txt            # Logs de inspeção e exemplos de retorno da API
+└── note.txt            # Logs de inspeção e exemplos de retorno
 ```
 
 ## 🛠️ Instalação e Configuração
 
 1.  **Requisitos:**
-    *   Python 3.8+
-    *   Conta de Desenvolvedor Meta com App criado e Token de Acesso.
+    - Python 3.10+
+    - Docker (Opcional, para rodar em container)
+    - Banco de Dados PostgreSQL
+    - Conta de Desenvolvedor Meta com App criado e Token de Acesso.
 
-2.  **Instalação das dependências:**
+2.  **Instalação Local:**
+
     ```bash
     pip install -r requirements.txt
     ```
 
 3.  **Configuração:**
     Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
+
     ```env
+    # Credenciais Meta
     META_ACCESS_TOKEN=seu_token_v4
-    META_AD_ACCOUNT_ID=
+    META_AD_ACCOUNT_IDS=act_xxxxxxxx,act_yyyyyyyy
+
+    # Credenciais Banco de Dados (Postgres)
+    DB_HOST=localhost
+    DB_NAME=seu_banco
+    DB_USER=seu_usuario
+    DB_PASS=sua_senha
+    DB_PORT=5432
     ```
 
-## 🔍 Scripts Disponíveis
+## ⚡ Como Executar
 
-### `src/utils/inspect_api.py`
-Este script realiza um diagnóstico inicial nas contas de anúncio configuradas.
-*   **Função:** Verifica o acesso à conta, lista seguidores do Instagram associado e faz uma amostragem dos anúncios (últimos 30 dias) para listar todas as `actions` (eventos) disponíveis.
-*   **Execução:**
-    ```bash
-    python src/utils/inspect_api.py
-    ```
+### Execução Direta (Local)
+
+Para rodar o pipeline completo e atualizar o banco de dados:
+
+```bash
+python main.py
+```
+
+### via Docker
+
+O projeto está pronto para ser rodado como um container:
+
+1. **Build da imagem:**
+
+   ```bash
+   docker build -t vetorial-etl .
+   ```
+
+2. **Rodar o container:**
+   ```bash
+   docker run --env-file .env vetorial-etl
+   ```
+
+## 🔍 Scripts e Módulos
+
+### `main.py`
+
+O orquestrador central. Ele itera sobre todas as contas listadas no `.env`, chama o extrator, passa os dados para o limpador e envia o resultado final para o banco de dados.
+
+### `src/ingestion/extractor.py`
+
+Interface com a `facebook_business` SDK. Solicita métricas de entrega, gasto e conversões nos níveis de plataforma e posicionamento.
 
 ### `src/transformation/cleaner.py`
-Este módulo contém a classe `DataCleaner`, responsável por receber os dados brutos (JSON) da API e convertê-los em um DataFrame pandas estruturado.
-*   **Funcionalidades:**
-    *   Extração de métricas específicas de `actions` (leads, mensagens, etc).
-    *   Cálculo de métricas de vídeo (3s, 50%, 75%).
-    *   Criação de chaves únicas (`hash_id`) para deduplicação.
-    *   Padronização de tipos de dados (float, int).
-*   **Teste Isolado:**
-    O arquivo possui um bloco `main` para teste rápido.
-    ```bash
-    python src/transformation/cleaner.py
-    ```
+
+Responsável pela inteligência de negócio. Converte o JSON bruto da Meta em um DataFrame estruturado, calculando leads consolidados e métricas de retenção de vídeo.
 
 ### `src/load/postgres_loader.py`
-Gerencia a conexão e inserção de dados no banco PostgreSQL.
-*   **Funcionalidades:**
-    *   Conexão via `psycopg2` (Credenciais no `.env`).
-    *   **Estratégia UPSERT:** Inserção ou Atualização baseada no `hash_id` (Idempotência).
-    *   **Auditoria:** Salva o JSON original na coluna `raw_data`.
-    *   Tabela destino: `insights_meta_ads`.
 
----
+Gerencia o banco de dados. Utiliza o `hash_id` para garantir que os dados sejam atualizados no banco sem duplicidade, mesmo que o script seja rodado múltiplas vezes no mesmo dia.
 
 ---
 
 ## 📏 Regras de Negócio (Business Rules)
 
-Esta seção serve como guia oficial para a transformação de dados e manutenção futura do ETL. O objetivo é padronizar as métricas vindas de diferentes origens (Pixel, API de Conversões, Formulários) em nomes únicos no banco de dados.
+Esta seção serve como guia oficial para a padronização das métricas vindas de diferentes origens em nomes únicos no banco de dados.
 
 ### Mapeamento de Métricas
 
-A tabela abaixo define como os eventos técnicos da API da Meta devem ser processados e renomeados para o banco de dados analítico.
+| Métrica no Banco        | Nomes Técnicos na API (Meta)                                    | Origem             | Descrição                                             |
+| :---------------------- | :-------------------------------------------------------------- | :----------------- | :---------------------------------------------------- |
+| **`lead_formulario`**   | `lead`<br>`onsite_conversion.lead_grouped`<br>`onsite_web_lead` | Formulário Nativo  | Leads gerados nos formulários do Facebook/Instagram.  |
+| **`lead_site`**         | `offsite_conversion.fb_pixel_lead`                              | Pixel no Site      | Conversões de Lead rastreadas pelo Pixel no website.  |
+| **`lead_mensagem`**     | `onsite_conversion.messaging_first_reply`                       | Início de Conversa | Inícios de conversa por mensagem (WhatsApp/Insta DM). |
+| **`seguidores_ganhos`** | `onsite_conversion.instagram_profile_followers`                 | Instagram          | Novos seguidores atribuídos a anúncios.               |
+| **`videoview_3s`**      | `video_view`                                                    | Vídeo              | Visualizações de pelo menos 3 segundos de vídeo.      |
 
-| Métrica no Banco | Nomes Técnicos na API (Meta) | Origem | Descrição |
-| :--- | :--- | :--- | :--- |
-| **`lead_formulario`** | `lead`<br>`onsite_conversion.lead_grouped`<br>`onsite_web_lead` | Formulário Nativo | Leads gerados diretamente nos formulários do Facebook/Instagram (Instant Forms). |
-| **`lead_site`** | `offsite_conversion.fb_pixel_lead` | Pixel no Site | Conversões de Lead rastreadas pelo Pixel no website externo. |
-| **`lead_mensagem`** | `onsite_conversion.messaging_first_reply` | Início de Conversa | Usuários que iniciaram uma conversa por mensagem (WhatsApp, Direct, Messenger) após clique no anúncio. |
-| **`lp_view`** | `landing_page_view`<br>`omni_landing_page_view` | Visualização de Página | Visualizações da página de destino (Landig Page) após o clique. |
-| **`compras`** | `purchase`<br>`onsite_web_purchase`<br>`offsite_conversion.fb_pixel_purchase` | Vendas Diretas | Eventos de compra confirmada, seja via Pixel ou API de Conversões. |
-
-> **Nota para Desenvolvedores:** Ao criar a lógica de transformação (`src/transformation`), utilize um dicionário de mapeamento ou estrutura `CASE WHEN` baseada nesta tabela para agregar os valores corretamente. Eventos não listados aqui devem ser ignorados ou categorizados como `outros` dependo da necessidade.
+> **Nota:** O `hash_id` é composto pela combinação de: `ad_id` + `date_start` + `publisher_platform` + `platform_position`.
