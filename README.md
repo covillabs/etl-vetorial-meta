@@ -67,10 +67,10 @@ vetorial-etl/
 
 ```bash
 # 1. Construir a imagem
-docker build -t vetorial-etl .
+docker build -t "nome-imagem" .
 
 # 2. Rodar o container
-docker run --env-file .env vetorial-etl
+docker run --env-file .env "nome-imagem"
 ```
 
 **Via Terminal (Desenvolvimento):**
