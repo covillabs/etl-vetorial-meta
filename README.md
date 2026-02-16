@@ -1,19 +1,22 @@
 # Vetorial ETL - Facebook Ads Integration
 
-Este projeto é um pipeline ETL (Extract, Transform, Load) robusto, focado na extração e processamento de dados da API do Facebook Ads (Meta Marketing API). O pipeline está totalmente operacional e pronto para produção no ambiente Docker (Portainer).
+Este projeto é um pipeline ETL (Extract, Transform, Load) de alta performance, projetado para extrair, processar e consolidar dados da **Meta Marketing API** (Facebook/Instagram Ads). Desenvolvido com foco em escalabilidade e auditabilidade, o sistema está pronto para produção em ambientes containerizados (Docker/Portainer).
 
-## 🚀 Status do Projeto
+---
 
-Atualmente, o projeto está na fase **Operacional**.
-O ciclo completo de ETL está implementado:
+## 🚀 Status do Projeto: OPERACIONAL
 
-- **Extração (E):** Baixa insights granulares por anúncio, quebra por plataforma e posicionamento.
-- **Transformação (T):** Normaliza dados, trata valores nulos e agrega métricas de conversão.
-- **Carga (L):** Persiste os dados no PostgreSQL usando estratégia de UPSERT (idempotência) baseada em Hash.
+O ciclo completo de dados está implementado e validado:
 
-## 📂 Estrutura do Projeto
+- **[E] Extraction:** Captura de insights granulares (ad-level) com segmentação por plataforma e posicionamento.
+- **[T] Transformation:** Motor de limpeza, normalização de métricas e deduplicação inteligente.
+- **[L] Load:** Persistência em PostgreSQL com suporte a operações de `UPSERT` e histórico bruto.
 
-```
+---
+
+## 📂 Visão Geral da Arquitetura
+
+```plaintext
 vetorial-etl/
 ├── main.py             # Orquestrador (Itera contas e gerencia janelas de tempo)
 ├── Dockerfile          # Receita da Imagem Docker (Python 3.10-slim)
@@ -45,18 +48,22 @@ vetorial-etl/
     ```
 
 3.  **Variáveis de Ambiente (.env):**
+
     ```env
-    META_ACCESS_TOKEN=seu_token
-    META_AD_ACCOUNT_IDS=act_123,act_456
-    DB_HOST=localhost
+    # Credenciais Meta
+    META_ACCESS_TOKEN=seu_token_aqui
+    META_AD_ACCOUNT_IDS=act_12345,act_67890
+
+    # Credenciais Banco
+    DB_HOST=seu_ip_ou_localhost
     DB_NAME=postgres
-    DB_USER=postgres
-    DB_PASS=admin
+    DB_USER=seu_usuario
+    DB_PASS=sua_senha
     ```
 
 ## ⚡ Como Executar
 
-### Via Docker (Recomendado para Produção)
+**Via Docker (Produção):**
 
 ```bash
 # 1. Construir a imagem
@@ -66,7 +73,7 @@ docker build -t vetorial-etl .
 docker run --env-file .env vetorial-etl
 ```
 
-### Via Terminal (Desenvolvimento)
+**Via Terminal (Desenvolvimento):**
 
 ```bash
 python main.py
