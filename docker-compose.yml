@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  vetorial-etl:
+    # Builda a imagem usando o Dockerfile da pasta atual
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    # Nome do container para facilitar logs
+    container_name: vetorial_meta_etl
+    
+    # Política de reinício: Tenta de novo se falhar, mas não se você parar manualmente
+    restart: on-failure
+    
+    # Define o fuso horário (Crucial para logs de agendamento)
+    environment:
+      - TZ=America/Sao_Paulo
+    
+    # Conecta à rede do Docker (para falar com o Postgres se estiver na mesma rede)
+    # Se o Postgres estiver exposto na host, usaremos o IP interno.
