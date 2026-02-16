@@ -1,14 +1,55 @@
-name: Deploy to Portainer
+name: Build e Deploy (Completo)
 
 on:
   push:
     branches:
-      - main  # ou master, verifique sua branch principal
+      - main  # ou master, confirme sua branch principal
+
+env:
+  REGISTRY: ghcr.io
+  # MUDE AQUI: Coloque o nome da sua organização e do repo
+  # Exemplo: nome-da-organizacao/nome-do-repo
+  IMAGE_NAME: covillabs/etl-vetorial-meta
 
 jobs:
-  webhook:
+  # TRABALHO 1: CONSTRUIR A IMAGEM (O Cozinheiro)
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Permissão vital para salvar na organização
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v3
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extrair metadados (Tags)
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+
+      - name: Construir e Publicar (Build & Push)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # TRABALHO 2: AVISAR O PORTAINER (O Entregador)
+  deploy-portainer:
+    needs: build-and-push # Só roda se o build der certo
     runs-on: ubuntu-latest
     steps:
       - name: Disparar Webhook do Portainer
-        ## O comando curl apenas acessa o link, avisando o Portainer para atualizar
         run: curl -X POST "${{ secrets.PORTAINER_WEBHOOK }}"
