@@ -117,3 +117,4 @@ O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Da
 Além dos dados brutos, o ETL gera colunas consolidadas para facilitar dashboards:
 
 - **lead (Total):** Soma de `lead_formulario` + `lead_site` + `lead_mensagem`.
+- **Nota:** O `hash_id` é composto pela combinação de: `ad_id` + `date_start` + `publisher_platform` + `platform_position`.
