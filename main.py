@@ -20,7 +20,7 @@ DATE_PRESET = "last_90d"
 
 def main():
     print("=" * 60)
-    print("🏭 COVIL LABS - ETL PIPELINE (PRODUÇÃO)")
+    print("🏭 COVIL LABS - ETL PIPELINE VETORIAL")
     print(f"📅 Janela de Dados: {DATE_PRESET}")
     print("=" * 60)
 
