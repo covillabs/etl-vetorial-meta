@@ -2,20 +2,21 @@ version: '3.8'
 
 services:
   vetorial-etl:
-    # Builda a imagem usando o Dockerfile da pasta atual
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # AQUI MUDOU: Em vez de build, apontamos para onde a imagem vai estar
+    # Substitua SEU_USUARIO pelo seu user do GitHub (tudo minúsculo)
+    image: ghcr.io/covillabs/etl-vetorial-meta:latest
     
-    # Nome do container para facilitar logs
-    container_name: vetorial_meta_etl
+    restart: always
     
-    # Política de reinício: Tenta de novo se falhar, mas não se você parar manualmente
-    restart: on-failure
+    # Removemos o container_name fixo (o Portainer gera um nome dinâmico)
     
-    # Define o fuso horário (Crucial para logs de agendamento)
     environment:
       - TZ=America/Sao_Paulo
-    
-    # Conecta à rede do Docker (para falar com o Postgres se estiver na mesma rede)
-    # Se o Postgres estiver exposto na host, usaremos o IP interno.
+      # As variáveis do .env serão injetadas pelo Portainer
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+      - META_AD_ACCOUNT_IDS=${META_AD_ACCOUNT_IDS}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
