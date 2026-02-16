@@ -66,7 +66,7 @@ vetorial-etl/
 **Via Docker (Produção):**
 
 ```bash
-# 1. Construir a imagem
+# 1. Construir a imagem!
 docker build -t "nome-imagem" .
 
 # 2. Rodar o container
