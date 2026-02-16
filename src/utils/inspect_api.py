@@ -69,7 +69,7 @@ def main():
 
         # Pausa de 10 segundos entre as contas (exceto na última)
         if idx < len(account_ids) - 1:
-            print(f"\n☕ Pausando 10s para respeitar limites da API...")
+            print("\n☕ Pausando 10s para respeitar limites da API...")
             time.sleep(10)
 
 
