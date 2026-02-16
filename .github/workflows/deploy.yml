@@ -10,5 +10,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Disparar Webhook do Portainer
-        # O comando curl apenas acessa o link, avisando o Portainer para atualizar
+        ## O comando curl apenas acessa o link, avisando o Portainer para atualizar
         run: curl -X POST "${{ secrets.PORTAINER_WEBHOOK }}"
