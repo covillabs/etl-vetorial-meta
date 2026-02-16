@@ -1,45 +1,42 @@
 # Vetorial ETL - Facebook Ads Integration
 
-Este projeto é um pipeline ETL (Extract, Transform, Load) robusto, focado na extração e processamento de dados da API do Facebook Ads (Meta Marketing API). O pipeline está totalmente operacional e pronto para produção.
+Este projeto é um pipeline ETL (Extract, Transform, Load) robusto, focado na extração e processamento de dados da API do Facebook Ads (Meta Marketing API). O pipeline está totalmente operacional e pronto para produção no ambiente Docker (Portainer).
 
 ## 🚀 Status do Projeto
 
 Atualmente, o projeto está na fase **Operacional**.
 O ciclo completo de ETL está implementado:
 
-- **Extração (E):** Baixa insights granulares por anúncio, plataforma e posicionamento.
-- **Transformação (T):** Limpa, padroniza e agrega métricas de conversão e vídeo.
-- **Carga (L):** Persiste os dados no PostgreSQL usando estratégia de UPSERT (idempotência).
+- **Extração (E):** Baixa insights granulares por anúncio, quebra por plataforma e posicionamento.
+- **Transformação (T):** Normaliza dados, trata valores nulos e agrega métricas de conversão.
+- **Carga (L):** Persiste os dados no PostgreSQL usando estratégia de UPSERT (idempotência) baseada em Hash.
 
 ## 📂 Estrutura do Projeto
 
 ```
 vetorial-etl/
-├── main.py             # Ponto de entrada (Executa o fluxo completo)
-├── Dockerfile          # Configuração para containerização
-├── requirements.txt    # Dependências do projeto
-├── .env                # Variáveis de ambiente (Tokens, IDs, Banco)
+├── main.py             # Orquestrador (Itera contas e gerencia janelas de tempo)
+├── Dockerfile          # Receita da Imagem Docker (Python 3.10-slim)
+├── requirements.txt    # Dependências (pandas, facebook_business, psycopg2)
+├── .env                # Variáveis de ambiente (Segredos não versionados)
 ├── src/
 │   ├── ingestion/      # Scripts de extração
-│   │   └── extractor.py # Cliente da API da Meta
-│   ├── transformation/ # Scripts de transformação de dados
-│   │   └── cleaner.py  # Padronização e limpeza de dados
+│   │   └── extractor.py # Cliente da API (Lida com Breakdowns e Paginação)
+│   ├── transformation/ # Scripts de transformação
+│   │   └── cleaner.py  # Regras de limpeza, soma de leads e tratamento de nulos
 │   ├── load/           # Scripts de carga
-│   │   └── postgres_loader.py # Carga no PostgreSQL (Upsert)
-│   └── utils/
-│       ├── inspect_api.py   # Script de diagnóstico da API
-│       └── test_pipeline.py # Script de teste de integridade
-├── data/               # Diretório para dados temporários ou locais
-└── note.txt            # Logs de inspeção e exemplos de retorno
+│   │   └── postgres_loader.py # Gerencia conexão e UPSERT no Banco
+│   └── utils/          # Ferramentas auxiliares de debug
+└── note.txt            # Logs e anotações
 ```
 
 ## 🛠️ Instalação e Configuração
 
 1.  **Requisitos:**
     - Python 3.10+
-    - Docker (Opcional, para rodar em container)
-    - Banco de Dados PostgreSQL
-    - Conta de Desenvolvedor Meta com App criado e Token de Acesso.
+    - Docker
+    - Acesso ao PostgreSQL (Local ou Hetzner)
+    - `.env` configurado com Token e IDs das Contas.
 
 2.  **Instalação Local:**
 
@@ -47,79 +44,76 @@ vetorial-etl/
     pip install -r requirements.txt
     ```
 
-3.  **Configuração:**
-    Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
-
+3.  **Variáveis de Ambiente (.env):**
     ```env
-    # Credenciais Meta
-    META_ACCESS_TOKEN=seu_token_v4
-    META_AD_ACCOUNT_IDS=act_xxxxxxxx,act_yyyyyyyy
-
-    # Credenciais Banco de Dados (Postgres)
+    META_ACCESS_TOKEN=seu_token
+    META_AD_ACCOUNT_IDS=act_123,act_456
     DB_HOST=localhost
-    DB_NAME=seu_banco
-    DB_USER=seu_usuario
-    DB_PASS=sua_senha
-    DB_PORT=5432
+    DB_NAME=postgres
+    DB_USER=postgres
+    DB_PASS=admin
     ```
 
 ## ⚡ Como Executar
 
-### Execução Direta (Local)
+### Via Docker (Recomendado para Produção)
 
-Para rodar o pipeline completo e atualizar o banco de dados:
+```bash
+# 1. Construir a imagem
+docker build -t vetorial-etl .
+
+# 2. Rodar o container
+docker run --env-file .env vetorial-etl
+```
+
+### Via Terminal (Desenvolvimento)
 
 ```bash
 python main.py
 ```
 
-### via Docker
-
-O projeto está pronto para ser rodado como um container:
-
-1. **Build da imagem:**
-
-   ```bash
-   docker build -t vetorial-etl .
-   ```
-
-2. **Rodar o container:**
-   ```bash
-   docker run --env-file .env vetorial-etl
-   ```
-
-## 🔍 Scripts e Módulos
-
-### `main.py`
-
-O orquestrador central. Ele itera sobre todas as contas listadas no `.env`, chama o extrator, passa os dados para o limpador e envia o resultado final para o banco de dados.
-
-### `src/ingestion/extractor.py`
-
-Interface com a `facebook_business` SDK. Solicita métricas de entrega, gasto e conversões nos níveis de plataforma e posicionamento.
-
-### `src/transformation/cleaner.py`
-
-Responsável pela inteligência de negócio. Converte o JSON bruto da Meta em um DataFrame estruturado, calculando leads consolidados e métricas de retenção de vídeo.
-
-### `src/load/postgres_loader.py`
-
-Gerencia o banco de dados. Utiliza o `hash_id` para garantir que os dados sejam atualizados no banco sem duplicidade, mesmo que o script seja rodado múltiplas vezes no mesmo dia.
-
----
-
 ## 📏 Regras de Negócio (Business Rules)
 
-Esta seção serve como guia oficial para a padronização das métricas vindas de diferentes origens em nomes únicos no banco de dados.
+Esta seção documenta a lógica aplicada aos dados durante o processamento.
 
-### Mapeamento de Métricas
+### 1. Estratégia de Extração (Janela de Tempo)
 
-| Métrica no Banco        | Nomes Técnicos na API (Meta)                                    | Origem             | Descrição                                             |
-| :---------------------- | :-------------------------------------------------------------- | :----------------- | :---------------------------------------------------- |
-| **`lead_formulario`**   | `lead`<br>`onsite_conversion.lead_grouped`<br>`onsite_web_lead` | Formulário Nativo  | Leads gerados nos formulários do Facebook/Instagram.  |
-| **`lead_site`**         | `offsite_conversion.fb_pixel_lead`                              | Pixel no Site      | Conversões de Lead rastreadas pelo Pixel no website.  |
-| **`lead_mensagem`**     | `onsite_conversion.messaging_first_reply`                       | Início de Conversa | Inícios de conversa por mensagem (WhatsApp/Insta DM). |
-| **`seguidores_ganhos`** | `onsite_conversion.instagram_profile_followers`                 | Instagram          | Novos seguidores atribuídos a anúncios.               |
-| **`videoview_3s`**      | `video_view`                                                    | Vídeo              | Visualizações de pelo menos 3 segundos de vídeo.      |
+O pipeline utiliza o parâmetro `date_preset='last_90d'` por padrão.
 
-> **Nota:** O `hash_id` é composto pela combinação de: `ad_id` + `date_start` + `publisher_platform` + `platform_position`.
+- **Motivo:** A Meta pode atribuir conversões (leads/vendas) dias após o clique.
+- **Comportamento:** A cada execução, o script reprocessa os últimos 3 meses. Dados antigos são atualizados no banco (Update), e novos são inseridos (Insert). Campanhas pausadas há mais de 90 dias sem atividade são ignoradas automaticamente pela API.
+
+### 2. Granularidade e Chave Única (hash_id)
+
+Os dados não são salvos apenas por ID do anúncio. Eles são quebrados por onde o anúncio apareceu.
+A chave única (Primary Key) é um hash gerado a partir de:
+`ad_id + date_start + publisher_platform (IG/FB) + platform_position (Feed/Stories/Reels)`
+Isso permite saber exatamente quanto se gastou no "Instagram Stories" vs "Facebook Feed" para o mesmo anúncio.
+
+### 3. Tratamento de Dados Nulos
+
+A API da Meta omite colunas se a métrica for zero no dia (ex: se ninguém clicou, a chave `clicks` não vem).
+
+- **Regra:** O ETL verifica a existência da coluna; se não existir, força o valor 0 (inteiro) ou 0.0 (float) para evitar erros de cálculo.
+
+### 4. Mapeamento e Cálculos de Métricas
+
+O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Dados:
+
+| Métrica no Banco (Destino) | Origem (Meta API / Breakdown)      | Lógica / Fórmulas                          |
+| :------------------------- | :--------------------------------- | :----------------------------------------- |
+| **valor_gasto**            | `spend`                            | Arredondado para 2 casas decimais.         |
+| **impressoes**             | `impressions`                      | Inteiro. Se nulo, 0.                       |
+| **lead_formulario**        | `lead`, `onsite_web_lead`...       | Conversões via Formulário Nativo.          |
+| **lead_site**              | `offsite_conversion.fb_pixel_lead` | Conversões via Pixel (Website).            |
+| **lead_mensagem**          | `onsite_conversion.messaging...`   | Conversões iniciadas no WhatsApp/Direct.   |
+| **seguidores_ganhos**      | `instagram_profile_followers`      | Novos seguidores atribuídos ao anúncio.    |
+| **videoview_3s**           | `video_view`                       | Visualizações > 3 segundos.                |
+| **videoview_50**           | `video_p50_watched_actions`        | Retenção: Usuários que viram 50% do vídeo. |
+| **videoview_75**           | `video_p75_watched_actions`        | Retenção: Usuários que viram 75% do vídeo. |
+
+### 5. Campos Calculados (Totais)
+
+Além dos dados brutos, o ETL gera colunas consolidadas para facilitar dashboards:
+
+- **lead (Total):** Soma de `lead_formulario` + `lead_site` + `lead_mensagem`.
