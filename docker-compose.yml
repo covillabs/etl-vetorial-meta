@@ -4,7 +4,7 @@ services:
   vetorial-etl:
     # AQUI MUDOU: Em vez de build, apontamos para onde a imagem vai estar
     # Substitua SEU_USUARIO pelo seu user do GitHub (tudo minúsculo)
-    image: ghcr.io/covillabs/etl-vetorial-meta:latest
+    image: covillabs/etl-vetorial-meta:latest
     
     restart: always
     
