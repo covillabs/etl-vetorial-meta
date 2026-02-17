@@ -35,5 +35,6 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
 networks:
-  default:
-    driver: overlay
+  public:
+    external: true
+    attachable: true
