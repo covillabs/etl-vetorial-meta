@@ -36,6 +36,6 @@ services:
       - DB_PASS=${DB_PASS}
 
 networks:
-  public_net:  # Nome que usamos dentro do services
+  public_net: 
     external: true
-    name: network_public  # <--- O NOME REAL QUE VIMOS NA IMAGEM
+    name: network_public  
