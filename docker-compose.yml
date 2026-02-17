@@ -34,6 +34,7 @@ services:
     
     # Variáveis de ambiente (serão preenchidas pelo Portainer)
     environment:
+      - PYTHONUNBUFFERED=1
       - TZ=America/Sao_Paulo
       - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
       - META_AD_ACCOUNT_IDS=${META_AD_ACCOUNT_IDS}
