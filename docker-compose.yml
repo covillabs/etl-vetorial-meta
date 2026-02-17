@@ -2,39 +2,49 @@ version: '3.8'
 
 services:
   vetorial-etl:
+    # Sua imagem correta no Docker Hub
     image: covillabs/etl-vetorial-meta:latest
+    
+    # Conecta o serviço à rede definida lá embaixo
     networks:
-      - public # <--- Certifique-se que o HAProxy também está nesta rede
+      - public
+      
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
-          - node.role == worker # Roda nos nós de trabalho
+          - node.role == worker # Garante que rode nos workers (pedido da Vetorial)
       resources:
         limits:
-          cpus: "0.5" # Limite de 50% de um núcleo
-          memory: 512M # Limite de 512MB de RAM
+          cpus: "0.5"   # Limite de processamento
+          memory: 512M  # Limite de memória RAM
       restart_policy:
         condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
     
+    # Limpeza automática de logs para não encher o disco
     logging:
       driver: "json-file"
       options:
-        max-size: "10m" # Limite de 10MB por arquivo de log
-        max-file: "3" # Mantém apenas os últimos 3 arquivos
+        max-size: "10m"
+        max-file: "3"
     
+    # Variáveis de ambiente (serão preenchidas pelo Portainer)
     environment:
       - TZ=America/Sao_Paulo
-      # As variáveis do .env serão injetadas pelo Portainer
       - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
       - META_AD_ACCOUNT_IDS=${META_AD_ACCOUNT_IDS}
-      - DB_HOST=${DB_HOST}
+      - DB_HOST=${DB_HOST} 
       - DB_PORT=${DB_PORT}
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
+
 networks:
   public:
-    external: true
+    driver: overlay
     attachable: true
+    # Removemos 'external: true' para que o Docker CRIE a rede agora.
