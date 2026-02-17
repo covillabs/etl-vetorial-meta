@@ -4,17 +4,21 @@ import pandas as pd
 class DataCleaner:
     @staticmethod
     def extract_action_value(actions, types_list):
+        """Extrai valores de listas de ações da Meta com segurança contra Nulos"""
         if not actions or not isinstance(actions, list):
             return 0
+        # Soma os valores convertendo para float e depois int para evitar erros de tipo
         return sum(
-            int(a.get("value", 0)) for a in actions if a["action_type"] in types_list
+            int(float(a.get("value", 0)))
+            for a in actions
+            if a["action_type"] in types_list
         )
 
     def transform(self, raw_data):
         df = pd.DataFrame(raw_data)
         clean_df = pd.DataFrame()
 
-        # Strings (Texto) - Seguro usar .get
+        # --- TEXTOS (Uso de .get para evitar erro de coluna ausente) ---
         clean_df["id_anuncio"] = df.get("ad_id", "N/A")
         clean_df["data_registro"] = df.get("date_start", "N/A")
         clean_df["account_id"] = df.get("account_id", "N/A")
@@ -24,45 +28,52 @@ class DataCleaner:
         clean_df["plataforma"] = df.get("publisher_platform", "N/A")
         clean_df["posicionamento"] = df.get("platform_position", "N/A")
 
-        # Números - Verificação de Segurança (Evita o erro do astype)
+        # --- NÚMEROS (A SOLUÇÃO PARA O ERRO NaN) ---
+        # fillna(0) substitui o que estiver vazio por zero absoluto
+
         if "spend" in df.columns:
-            clean_df["valor_gasto"] = df["spend"].astype(float).round(2)
+            clean_df["valor_gasto"] = df["spend"].fillna(0).astype(float).round(2)
         else:
             clean_df["valor_gasto"] = 0.0
 
         if "impressions" in df.columns:
-            clean_df["impressoes"] = df["impressions"].astype(int)
+            clean_df["impressoes"] = df["impressions"].fillna(0).astype(int)
         else:
             clean_df["impressoes"] = 0
 
         if "inline_link_clicks" in df.columns:
-            clean_df["clique_link"] = df["inline_link_clicks"].astype(int)
+            clean_df["clique_link"] = df["inline_link_clicks"].fillna(0).astype(int)
         else:
             clean_df["clique_link"] = 0
 
-        # Actions (Conversões)
+        # --- TRATAMENTO DE AÇÕES (Leads e Conversões) ---
         if "actions" in df.columns:
-            clean_df["lead_formulario"] = df["actions"].apply(
+            # Garante que se a coluna existir mas vier NaN, ela vire uma lista vazia
+            actions_clean = df["actions"].apply(
+                lambda x: x if isinstance(x, list) else []
+            )
+
+            clean_df["lead_formulario"] = actions_clean.apply(
                 lambda x: self.extract_action_value(
                     x, ["lead", "onsite_conversion.lead_grouped", "onsite_web_lead"]
                 )
             )
-            clean_df["lead_site"] = df["actions"].apply(
+            clean_df["lead_site"] = actions_clean.apply(
                 lambda x: self.extract_action_value(
                     x, ["offsite_conversion.fb_pixel_lead"]
                 )
             )
-            clean_df["lead_mensagem"] = df["actions"].apply(
+            clean_df["lead_mensagem"] = actions_clean.apply(
                 lambda x: self.extract_action_value(
                     x, ["onsite_conversion.messaging_first_reply"]
                 )
             )
-            clean_df["seguidores_ganhos"] = df["actions"].apply(
+            clean_df["seguidores_ganhos"] = actions_clean.apply(
                 lambda x: self.extract_action_value(
                     x, ["onsite_conversion.instagram_profile_followers"]
                 )
             )
-            clean_df["videoview_3s"] = df["actions"].apply(
+            clean_df["videoview_3s"] = actions_clean.apply(
                 lambda x: self.extract_action_value(x, ["video_view"])
             )
         else:
@@ -75,29 +86,30 @@ class DataCleaner:
             ]:
                 clean_df[col] = 0
 
-        # Vídeo Retenção
-        if "video_p50_watched_actions" in df.columns:
-            clean_df["videoview_50"] = df["video_p50_watched_actions"].apply(
-                lambda x: self.extract_action_value(x, ["video_view"])
-            )
-        else:
-            clean_df["videoview_50"] = 0
+        # --- VÍDEOS (Segurança adicional) ---
+        for col, meta_field in [
+            ("videoview_50", "video_p50_watched_actions"),
+            ("videoview_75", "video_p75_watched_actions"),
+        ]:
+            if meta_field in df.columns:
+                clean_df[col] = df[meta_field].apply(
+                    lambda x: (
+                        self.extract_action_value(x, ["video_view"])
+                        if isinstance(x, list)
+                        else 0
+                    )
+                )
+            else:
+                clean_df[col] = 0
 
-        if "video_p75_watched_actions" in df.columns:
-            clean_df["videoview_75"] = df["video_p75_watched_actions"].apply(
-                lambda x: self.extract_action_value(x, ["video_view"])
-            )
-        else:
-            clean_df["videoview_75"] = 0
-
-        # Consolidação
+        # Consolidação de Leads Total
         clean_df["lead"] = (
             clean_df["lead_formulario"]
             + clean_df["lead_site"]
             + clean_df["lead_mensagem"]
         )
 
-        # Hash ID (PK)
+        # Criação do Hash ID (Indispensável para o Upsert não duplicar dados)
         clean_df["hash_id"] = (
             clean_df["id_anuncio"].astype(str)
             + "_"
