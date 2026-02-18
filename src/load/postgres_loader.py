@@ -56,7 +56,7 @@ class PostgresLoader:
                     id_anuncio, data_registro, account_id, nome_conta, campanha, 
                     anuncio, plataforma, posicionamento, valor_gasto, impressoes, 
                     clique_link, lead_formulario, lead_site, lead_mensagem, 
-                    seguidores_ganhos, videoview_3s, videoview_50, videoview_75, 
+                    seguidores_instagram, videoview_3s, videoview_50, videoview_75, 
                     lead, hash_id, raw_data
                 FROM temp_meta_insights
                 ON CONFLICT (hash_id) DO UPDATE SET
@@ -66,7 +66,7 @@ class PostgresLoader:
                     lead_formulario = EXCLUDED.lead_formulario,
                     lead_site = EXCLUDED.lead_site,
                     lead_mensagem = EXCLUDED.lead_mensagem,
-                    seguidores_ganhos = EXCLUDED.seguidores_ganhos,
+                    seguidores_instagram = EXCLUDED.seguidores_instagram,
                     videoview_3s = EXCLUDED.videoview_3s,
                     videoview_50 = EXCLUDED.videoview_50,
                     videoview_75 = EXCLUDED.videoview_75,
