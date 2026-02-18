@@ -11,6 +11,8 @@ O ciclo completo de dados está implementado e validado:
 - **[E] Extraction:** Captura de insights granulares (ad-level) com segmentação por plataforma e posicionamento.
 - **[T] Transformation:** Motor de limpeza, normalização de métricas e deduplicação inteligente.
 - **[L] Load:** Persistência em PostgreSQL com suporte a operações de `UPSERT` e histórico bruto.
+- **[S] Scheduler:** Execução automática a cada 4 horas (built-in).
+- **[N] Notification:** Alertas de Erro/Status via Discord Webhook.
 
 ---
 
@@ -59,6 +61,9 @@ vetorial-etl/
     DB_NAME=postgres
     DB_USER=seu_usuario
     DB_PASS=sua_senha
+
+    # Notificações
+    DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
     ```
 
 ## ⚡ Como Executar
