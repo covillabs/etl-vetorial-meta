@@ -1,6 +1,7 @@
 import os
 import json
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine, text
 
 
@@ -13,7 +14,6 @@ class PostgresLoader:
         self.port = os.getenv("DB_PORT", "5432")
         self.database = os.getenv("DB_NAME")
 
-        # Criação do engine
         self.engine = create_engine(
             f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}",
             pool_pre_ping=True,
@@ -24,20 +24,45 @@ class PostgresLoader:
         if df.empty:
             return
 
-        # 1. Auditoria e Correção de Nomes (Briefing)
+        # ---------------------------------------------------------
+        # 1. TRATAMENTO PRÉVIO DE DADOS (Blindagem no Python)
+        # ---------------------------------------------------------
+
+        # Garante que a coluna raw_data seja string JSON válida
         df["raw_data"] = [json.dumps(r) for r in raw_json_list]
-        # Garante que o nome da coluna bate com o banco da Vetorial
+
+        # Renomeia coluna para o padrão do banco
         df = df.rename(columns={"seguidores_ganhos": "seguidores_instagram"})
 
-        with self.engine.begin() as conn:
-            print(
-                f"📡 [Load] Enviando {len(df)} registros para o Postgres (via Rede Interna)..."
-            )
+        # Preenche vazios numéricos com 0 para evitar erro de NOT NULL
+        cols_numericas = [
+            "valor_gasto",
+            "impressoes",
+            "clique_link",
+            "lead_formulario",
+            "lead_site",
+            "lead_mensagem",
+            "seguidores_instagram",
+            "videoview_3s",
+            "videoview_50",
+            "videoview_75",
+            "lead",
+        ]
+        # Verifica quais colunas numéricas existem no DF e preenche NaN com 0
+        for col in cols_numericas:
+            if col in df.columns:
+                df[col] = df[col].fillna(0)
 
-            # Cria tabela temporária
+        # ---------------------------------------------------------
+        # 2. CARGA PARA O BANCO
+        # ---------------------------------------------------------
+        with self.engine.begin() as conn:
+            print(f"📡 [Load] Enviando {len(df)} registros para o Postgres...")
+
+            # Sobe dados para tabela temporária (como texto/genérico)
             df.to_sql("temp_meta_insights", conn, if_exists="replace", index=False)
 
-            # 2. Query de UPSERT com CAST na data
+            # Query com TODOS OS CASTS necessários para evitar erros de tipo
             upsert_query = text("""
                 INSERT INTO insights_meta_ads (
                     id_anuncio, data_registro, account_id, nome_conta, campanha, 
@@ -48,12 +73,14 @@ class PostgresLoader:
                 )
                 SELECT 
                     id_anuncio, 
-                    CAST(data_registro AS DATE), -- <--- O SEGREDO ESTÁ AQUI (Converte Texto para Data)
+                    CAST(data_registro AS DATE),      -- Converte String -> Date
                     account_id, nome_conta, campanha, 
-                    anuncio, plataforma, posicionamento, valor_gasto, impressoes, 
-                    clique_link, lead_formulario, lead_site, lead_mensagem, 
+                    anuncio, plataforma, posicionamento, 
+                    CAST(valor_gasto AS NUMERIC),     -- Converte String/Float -> Numeric (Dinheiro)
+                    impressoes, clique_link, lead_formulario, lead_site, lead_mensagem, 
                     seguidores_instagram, videoview_3s, videoview_50, videoview_75, 
-                    lead, hash_id, raw_data
+                    lead, hash_id, 
+                    CAST(raw_data AS JSONB)           -- Converte String -> JSONB
                 FROM temp_meta_insights
                 ON CONFLICT (hash_id) DO UPDATE SET
                     valor_gasto = EXCLUDED.valor_gasto,
@@ -77,4 +104,4 @@ class PostgresLoader:
 
 
 if __name__ == "__main__":
-    print("ℹ️ Este módulo deve ser chamado pelo script principal (main.py).")
+    pass
