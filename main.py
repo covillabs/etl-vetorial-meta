@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from src.ingestion.extractor import MetaExtractor
 from src.transformation.cleaner import DataCleaner
 from src.load.postgres_loader import PostgresLoader
-from src.notification.discord_alert import DiscordAlert  # <--- O NOVO MÓDULO
+from src.notification.discord_alert import DiscordAlert
 
 # Configuração
 load_dotenv()

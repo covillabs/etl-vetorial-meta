@@ -20,19 +20,29 @@ O ciclo completo de dados está implementado e validado:
 
 ```plaintext
 vetorial-etl/
-├── main.py             # Orquestrador (Itera contas e gerencia janelas de tempo)
-├── Dockerfile          # Receita da Imagem Docker (Python 3.10-slim)
-├── requirements.txt    # Dependências (pandas, facebook_business, psycopg2)
-├── .env                # Variáveis de ambiente (Segredos não versionados)
+├── main.py                 # Orquestrador + Scheduler (4h loop)
+├── Dockerfile              # Receita da Imagem Docker (Python 3.10-slim)
+├── docker-compose.yml      # Deploy (Portainer/Swarm)
+├── requirements.txt        # Dependências
+├── .env                    # Variáveis de ambiente (não versionado)
 ├── src/
-│   ├── ingestion/      # Scripts de extração
-│   │   └── extractor.py # Cliente da API (Lida com Breakdowns e Paginação)
-│   ├── transformation/ # Scripts de transformação
-│   │   └── cleaner.py  # Regras de limpeza, soma de leads e tratamento de nulos
-│   ├── load/           # Scripts de carga
-│   │   └── postgres_loader.py # Gerencia conexão e UPSERT no Banco
-│   └── utils/          # Ferramentas auxiliares de debug
-└── note.txt            # Logs e anotações
+│   ├── ingestion/
+│   │   └── extractor.py    # Cliente da API (Breakdowns + action_breakdowns)
+│   ├── transformation/
+│   │   └── cleaner.py      # Normalização, leads, seguidores, hash_id
+│   ├── load/
+│   │   └── postgres_loader.py  # UPSERT + Filtro de segurança (REQUIRED_COLUMNS)
+│   ├── notification/
+│   │   └── discord_alert.py    # Alertas via Discord Webhook
+│   └── utils/              # (vazio — scripts movidos para scripts/)
+└── scripts/
+    └── diagnostics/        # Ferramentas de diagnóstico e debug
+        ├── audit_api_payload.py    # Varredura de campos da API
+        ├── audit_metadata.py       # Checagem de atribuição e UTMs
+        ├── deep_scan_followers.py  # Scan profundo de seguidores
+        ├── inspect_api.py          # Mapeamento de actions por conta
+        ├── test_db.py              # Teste de conexão com PostgreSQL
+        └── test_pipeline.py        # Teste offline do cleaner (mock data)
 ```
 
 ## 🛠️ Instalação e Configuração
@@ -84,21 +94,27 @@ docker run --env-file .env "nome-imagem"
 python main.py
 ```
 
+**Rodar Testes Offline:**
+
+```bash
+python scripts/diagnostics/test_pipeline.py
+```
+
 ## 📏 Regras de Negócio (Business Rules)
 
 Esta seção documenta a lógica aplicada aos dados durante o processamento.
 
 ### 1. Estratégia de Extração (Janela de Tempo)
 
-O pipeline utiliza o parâmetro `date_preset='last_90d'` por padrão.
+O pipeline utiliza o parâmetro `date_preset='last_30d'` por padrão.
 
 - **Motivo:** A Meta pode atribuir conversões (leads/vendas) dias após o clique.
-- **Comportamento:** A cada execução, o script reprocessa os últimos 3 meses. Dados antigos são atualizados no banco (Update), e novos são inseridos (Insert). Campanhas pausadas há mais de 90 dias sem atividade são ignoradas automaticamente pela API.
+- **Comportamento:** A cada execução, o script reprocessa os últimos 30 dias. Dados antigos são atualizados no banco (Update), e novos são inseridos (Insert). Campanhas pausadas há mais de 30 dias sem atividade são ignoradas automaticamente pela API.
 
 ### 2. Granularidade e Chave Única (hash_id)
 
 Os dados não são salvos apenas por ID do anúncio. Eles são quebrados por onde o anúncio apareceu.
-A chave única (Primary Key) é um hash gerado a partir de:
+A chave única (Primary Key) é um hash MD5 gerado a partir de:
 `ad_id + date_start + publisher_platform (IG/FB) + platform_position (Feed/Stories/Reels)`
 Isso permite saber exatamente quanto se gastou no "Instagram Stories" vs "Facebook Feed" para o mesmo anúncio.
 
@@ -112,17 +128,18 @@ A API da Meta omite colunas se a métrica for zero no dia (ex: se ninguém clico
 
 O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Dados:
 
-| Métrica no Banco (Destino) | Origem (Meta API / Breakdown)      | Lógica / Fórmulas                          |
-| :------------------------- | :--------------------------------- | :----------------------------------------- |
-| **valor_gasto**            | `spend`                            | Arredondado para 2 casas decimais.         |
-| **impressoes**             | `impressions`                      | Inteiro. Se nulo, 0.                       |
-| **lead_formulario**        | `lead`, `onsite_web_lead`...       | Conversões via Formulário Nativo.          |
-| **lead_site**              | `offsite_conversion.fb_pixel_lead` | Conversões via Pixel (Website).            |
-| **lead_mensagem**          | `onsite_conversion.messaging...`   | Conversões iniciadas no WhatsApp/Direct.   |
-| **seguidores_instagram**   | `instagram_profile_followers`      | Novos seguidores atribuídos ao anúncio.    |
-| **videoview_3s**           | `video_view`                       | Visualizações > 3 segundos.                |
-| **videoview_50**           | `video_p50_watched_actions`        | Retenção: Usuários que viram 50% do vídeo. |
-| **videoview_75**           | `video_p75_watched_actions`        | Retenção: Usuários que viram 75% do vídeo. |
+| Métrica no Banco (Destino) | Origem (Meta API / Breakdown)                                                       | Lógica / Fórmulas                                 |
+| :------------------------- | :---------------------------------------------------------------------------------- | :------------------------------------------------ |
+| **valor_gasto**            | `spend`                                                                             | Arredondado para 2 casas decimais.                |
+| **impressoes**             | `impressions`                                                                       | Inteiro. Se nulo, 0.                              |
+| **clique_link**            | `inline_link_clicks` + `link_click` (actions)                                       | Soma dos dois campos (inline costuma vir zerado). |
+| **lead_formulario**        | `lead`, `onsite_conversion.lead_grouped`, `onsite_conversion.lead`                  | Conversões via Formulário Nativo.                 |
+| **lead_site**              | `onsite_web_lead`, `offsite_conversion.fb_pixel_lead`                               | Conversões via Pixel (Website).                   |
+| **lead_mensagem**          | `onsite_conversion.messaging_first_reply`, `total_messaging_connection`             | WhatsApp/Direct.                                  |
+| **seguidores_instagram**   | `onsite_conversion.post_save_follow`, `instagram_follower_count_total`, `page_like` | Novos seguidores.                                 |
+| **videoview_3s**           | `video_view` (de actions)                                                           | Visualizações > 3 segundos.                       |
+| **videoview_50**           | `video_p50_watched_actions`                                                         | Retenção: Usuários que viram 50% do vídeo.        |
+| **videoview_75**           | `video_p75_watched_actions`                                                         | Retenção: Usuários que viram 75% do vídeo.        |
 
 ### 5. Campos Calculados (Totais)
 
@@ -130,3 +147,11 @@ Além dos dados brutos, o ETL gera colunas consolidadas para facilitar dashboard
 
 - **lead (Total):** Soma de `lead_formulario` + `lead_site` + `lead_mensagem`.
 - **Nota:** O `hash_id` é composto pela combinação de: `ad_id` + `date_start` + `publisher_platform` + `platform_position`.
+
+### 6. Filtro de Segurança (REQUIRED_COLUMNS)
+
+O `postgres_loader.py` contém uma lista `REQUIRED_COLUMNS` que atua como trava de segurança:
+
+- Apenas colunas dessa lista são enviadas ao banco
+- Se o cleaner gerar colunas extras (ex: `reach`, `ctr`), elas são **ignoradas** silenciosamente
+- Se alguma coluna esperada estiver faltando, um **WARNING** é logado (mas o pipeline não trava)

@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .env
 note.txt
+data/
+*.csv
+projeto_completo.txt
+DOCUMENTACAO_COMPLETA_CODIGO.txt
+codigo_projeto_vetorial.txt
+aggregate_project.py

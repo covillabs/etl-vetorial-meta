@@ -55,7 +55,7 @@ def run_inspection(account_id):
 
 def main():
     token = os.getenv("META_ACCESS_TOKEN")
-    ids_string = os.getenv("META_AD_ACCOUNT_ID")
+    ids_string = os.getenv("META_AD_ACCOUNT_IDS")
 
     if not token or not ids_string:
         print("❌ Erro: Verifique TOKEN e IDS no .env")
