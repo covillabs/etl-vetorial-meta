@@ -114,7 +114,7 @@ O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Da
 | **lead_formulario**        | `lead`, `onsite_web_lead`...       | Conversões via Formulário Nativo.          |
 | **lead_site**              | `offsite_conversion.fb_pixel_lead` | Conversões via Pixel (Website).            |
 | **lead_mensagem**          | `onsite_conversion.messaging...`   | Conversões iniciadas no WhatsApp/Direct.   |
-| **seguidores_ganhos**      | `instagram_profile_followers`      | Novos seguidores atribuídos ao anúncio.    |
+| **seguidores_instagram**   | `instagram_profile_followers`      | Novos seguidores atribuídos ao anúncio.    |
 | **videoview_3s**           | `video_view`                       | Visualizações > 3 segundos.                |
 | **videoview_50**           | `video_p50_watched_actions`        | Retenção: Usuários que viram 50% do vídeo. |
 | **videoview_75**           | `video_p75_watched_actions`        | Retenção: Usuários que viram 75% do vídeo. |
