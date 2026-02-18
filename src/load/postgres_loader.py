@@ -30,6 +30,7 @@ class PostgresLoader:
 
         # Mantendo sua lógica de anexar o JSON bruto
         df["raw_data"] = [json.dumps(r) for r in raw_json_list]
+        df = df.rename(columns={"seguidores_ganhos": "seguidores_instagram"})
 
         # Iniciamos uma transação segura
         with self.engine.begin() as conn:
@@ -48,7 +49,7 @@ class PostgresLoader:
                     id_anuncio, data_registro, account_id, nome_conta, campanha, 
                     anuncio, plataforma, posicionamento, valor_gasto, impressoes, 
                     clique_link, lead_formulario, lead_site, lead_mensagem, 
-                    seguidores_ganhos, videoview_3s, videoview_50, videoview_75, 
+                    seguidores_instagram, videoview_3s, videoview_50, videoview_75, 
                     lead, hash_id, raw_data
                 )
                 SELECT 
