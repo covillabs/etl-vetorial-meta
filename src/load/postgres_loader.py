@@ -6,15 +6,14 @@ from sqlalchemy import create_engine, text
 
 class PostgresLoader:
     def __init__(self):
-        # Coleta variáveis do ambiente (configuradas no Portainer)
+        # Coleta variáveis do ambiente
         self.user = os.getenv("DB_USER")
         self.password = os.getenv("DB_PASS")
         self.host = os.getenv("DB_HOST", "haproxy")
-        self.port = os.getenv("DB_PORT", "5433")
+        self.port = os.getenv("DB_PORT", "5432")
         self.database = os.getenv("DB_NAME")
 
-        # Criação do engine SQLAlchemy (Otimizado para HAProxy)
-        # pool_pre_ping=True: testa a conexão antes de usar (evita erro de 'conexão perdida')
+        # Criação do engine
         self.engine = create_engine(
             f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}",
             pool_pre_ping=True,
@@ -22,28 +21,23 @@ class PostgresLoader:
         )
 
     def upsert_data(self, df, raw_json_list):
-        """
-        Realiza o UPSERT dos dados e mantém o JSON bruto para auditoria.
-        """
         if df.empty:
             return
 
-        # Mantendo sua lógica de anexar o JSON bruto
+        # 1. Auditoria e Correção de Nomes (Briefing)
         df["raw_data"] = [json.dumps(r) for r in raw_json_list]
+        # Garante que o nome da coluna bate com o banco da Vetorial
         df = df.rename(columns={"seguidores_ganhos": "seguidores_instagram"})
 
-        # Iniciamos uma transação segura
         with self.engine.begin() as conn:
             print(
-                f"📡 [Load] Enviando {len(df)} registros para o Postgres (via HAProxy)..."
+                f"📡 [Load] Enviando {len(df)} registros para o Postgres (via Rede Interna)..."
             )
 
-            # 1. Cria tabela temporária rápida
-            # index=False evita criar uma coluna extra de índice no banco
+            # Cria tabela temporária
             df.to_sql("temp_meta_insights", conn, if_exists="replace", index=False)
 
-            # 2. Query de UPSERT (Ajustada para o nome da sua tabela original)
-            # Usei 'insights_meta_ads' que estava no seu código original
+            # 2. Query de UPSERT com CAST na data
             upsert_query = text("""
                 INSERT INTO insights_meta_ads (
                     id_anuncio, data_registro, account_id, nome_conta, campanha, 
@@ -53,7 +47,9 @@ class PostgresLoader:
                     lead, hash_id, raw_data
                 )
                 SELECT 
-                    id_anuncio, data_registro, account_id, nome_conta, campanha, 
+                    id_anuncio, 
+                    CAST(data_registro AS DATE), -- <--- O SEGREDO ESTÁ AQUI (Converte Texto para Data)
+                    account_id, nome_conta, campanha, 
                     anuncio, plataforma, posicionamento, valor_gasto, impressoes, 
                     clique_link, lead_formulario, lead_site, lead_mensagem, 
                     seguidores_instagram, videoview_3s, videoview_50, videoview_75, 
