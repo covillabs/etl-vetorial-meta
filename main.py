@@ -13,7 +13,7 @@ from src.notification.discord_alert import DiscordAlert  # <--- O NOVO MÓDULO
 # Configuração
 load_dotenv()
 ACCOUNTS = os.getenv("META_AD_ACCOUNT_IDS", "").split(",")
-DATE_PRESET = "last_90d"
+DATE_PRESET = "last_30d"
 
 # Instancia o Alerta globalmente para usar no script
 alert = DiscordAlert()
