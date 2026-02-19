@@ -62,7 +62,27 @@ A API mistura seguidores do Instagram com curtidas na página do Facebook.
 - **Regra:** Priorizamos `instagram_follower_count_total` e `onsite_conversion.post_save_follow`.
 - **Coluna no Banco:** `seguidores_instagram`.
 
-### 2.3. Load: `PostgresLoader`
+### 2.4. Ingestion: `InstagramProfileExtractor`
+
+Módulo dedicado a métricas de crescimento do perfil (não de anúncios).
+
+**Métrica Monitorada:** `follows_and_unfollows`.
+
+- A Graph API não entrega "novos seguidores" diretamente. Ela entrega o saldo líquido.
+- **Estratégia:** Buscamos sempre o dia anterior (`D-1`) completo (00:00 - 23:59).
+- **Endpoint:** `/{ig_account_id}/insights`
+
+```python
+# src/ingestion/ig_profile_extractor.py
+params = {
+    "metric": "follows_and_unfollows",
+    "period": "day",
+    "since": timestamp_ontem_inicio,
+    "until": timestamp_ontem_fim,
+}
+```
+
+### 2.5. Load: `PostgresLoader`
 
 Gerencia a persistência segura dos dados.
 

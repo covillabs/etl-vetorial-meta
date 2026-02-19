@@ -128,18 +128,29 @@ A API da Meta omite colunas se a métrica for zero no dia (ex: se ninguém clico
 
 O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Dados:
 
-| Métrica no Banco (Destino) | Origem (Meta API / Breakdown)                                                       | Lógica / Fórmulas                                 |
-| :------------------------- | :---------------------------------------------------------------------------------- | :------------------------------------------------ |
-| **valor_gasto**            | `spend`                                                                             | Arredondado para 2 casas decimais.                |
-| **impressoes**             | `impressions`                                                                       | Inteiro. Se nulo, 0.                              |
-| **clique_link**            | `inline_link_clicks` + `link_click` (actions)                                       | Soma dos dois campos (inline costuma vir zerado). |
-| **lead_formulario**        | `lead`, `onsite_conversion.lead_grouped`, `onsite_conversion.lead`                  | Conversões via Formulário Nativo.                 |
-| **lead_site**              | `onsite_web_lead`, `offsite_conversion.fb_pixel_lead`                               | Conversões via Pixel (Website).                   |
-| **lead_mensagem**          | `onsite_conversion.messaging_first_reply`, `total_messaging_connection`             | WhatsApp/Direct.                                  |
-| **seguidores_instagram**   | `onsite_conversion.post_save_follow`, `instagram_follower_count_total`, `page_like` | Novos seguidores.                                 |
-| **videoview_3s**           | `video_view` (de actions)                                                           | Visualizações > 3 segundos.                       |
-| **videoview_50**           | `video_p50_watched_actions`                                                         | Retenção: Usuários que viram 50% do vídeo.        |
-| **videoview_75**           | `video_p75_watched_actions`                                                         | Retenção: Usuários que viram 75% do vídeo.        |
+| Métrica no Banco (Destino)  | Origem (Meta API / Breakdown)                                                       | Lógica / Fórmulas                                 |
+| :-------------------------- | :---------------------------------------------------------------------------------- | :------------------------------------------------ |
+| **valor_gasto**             | `spend`                                                                             | Arredondado para 2 casas decimais.                |
+| **impressoes**              | `impressions`                                                                       | Inteiro. Se nulo, 0.                              |
+| **clique_link**             | `inline_link_clicks` + `link_click` (actions)                                       | Soma dos dois campos (inline costuma vir zerado). |
+| **lead_formulario**         | `lead`, `onsite_conversion.lead_grouped`, `onsite_conversion.lead`                  | Conversões via Formulário Nativo.                 |
+| **lead_site**               | `onsite_web_lead`, `offsite_conversion.fb_pixel_lead`                               | Conversões via Pixel (Website).                   |
+| **lead_mensagem**           | `onsite_conversion.messaging_first_reply`, `total_messaging_connection`             | WhatsApp/Direct.                                  |
+| **seguidores_instagram**    | `onsite_conversion.post_save_follow`, `instagram_follower_count_total`, `page_like` | Novos seguidores.                                 |
+| **videoview_3s**            | `video_view` (de actions)                                                           | Visualizações > 3 segundos.                       |
+| **videoview_50**            | `video_p50_watched_actions`                                                         | Retenção: Usuários que viram 50% do vídeo.        |
+| **videoview_75**            | `video_p75_watched_actions`                                                         | Retenção: Usuários que viram 75% do vídeo.        |
+| **(instagram_crescimento)** | `follows_and_unfollows` (Graph API)                                                 | Saldo líquido de seguidores no dia anterior.      |
+
+### 5. Extração de Crescimento do Perfil (Instagram)
+
+Além dos anúncios, o pipeline extrai métricas orgânicas/perfil do Instagram:
+
+- **Fonte:** Instagram Graph API (`/insights`).
+- **Métrica:** `follows_and_unfollows` (Total de seguidores novos - Unfollows).
+- **Frequência:** Diária (busca sempre o dia anterior fechado `D-1`).
+- **Tabela:** `instagram_crescimento` (Upsert por `data_registro`).
+- **Requisito:** Variável `META_IG_ACCOUNT_ID` configurada.
 
 ### 5. Campos Calculados (Totais)
 
