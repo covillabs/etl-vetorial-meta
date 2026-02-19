@@ -62,6 +62,8 @@ A API mistura seguidores do Instagram com curtidas na página do Facebook.
 - **Regra:** Priorizamos `instagram_follower_count_total` e `onsite_conversion.post_save_follow`.
 - **Coluna no Banco:** `seguidores_instagram`.
 
+#
+
 ### 2.4. Ingestion: `InstagramProfileExtractor`
 
 Módulo dedicado a métricas de crescimento do perfil (não de anúncios).
