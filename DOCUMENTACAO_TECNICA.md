@@ -66,6 +66,12 @@ A API mistura seguidores do Instagram com curtidas na página do Facebook.
 
 Módulo dedicado a métricas de crescimento do perfil (não de anúncios).
 
+**Atualização Multi-conta (v2.1):**
+Agora o script itera sobre uma lista de IDs configurados (`META_IG_ACCOUNT_IDS`).
+
+- O UPSERT utiliza uma **Chave Primária Composta**: `ig_account_id` + `data_registro`.
+- Isso permite monitorar múltiplas contas de Instagram na mesma tabela sem conflito.
+
 **Métrica Monitorada:** `follows_and_unfollows`.
 
 - A Graph API não entrega "novos seguidores" diretamente. Ela entrega o saldo líquido.

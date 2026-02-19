@@ -149,8 +149,8 @@ Além dos anúncios, o pipeline extrai métricas orgânicas/perfil do Instagram:
 - **Fonte:** Instagram Graph API (`/insights`).
 - **Métrica:** `follows_and_unfollows` (Total de seguidores novos - Unfollows).
 - **Frequência:** Diária (busca sempre o dia anterior fechado `D-1`).
-- **Tabela:** `instagram_crescimento` (Upsert por `data_registro`).
-- **Requisito:** Variável `META_IG_ACCOUNT_ID` configurada.
+- **Tabela:** `instagram_crescimento` (Upsert por `ig_account_id` + `data_registro`).
+- **Requisito:** Variável `META_IG_ACCOUNT_IDS` configurada (lista separada por vírgulas).
 
 ### 5. Campos Calculados (Totais)
 

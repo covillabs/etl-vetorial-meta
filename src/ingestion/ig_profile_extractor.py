@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 class InstagramProfileExtractor:
     """
     Conecta na Instagram Graph API para extrair métricas de crescimento do perfil.
-    Foco: Capturar os seguidores ganhos diariamente (follows_and_unfollows).
+    Preparado para múltiplos clientes, inserindo o ID da conta no DataFrame final.
     """
 
     def __init__(self, access_token: str, ig_account_id: str):
@@ -19,12 +19,10 @@ class InstagramProfileExtractor:
     def get_daily_followers(self) -> pd.DataFrame:
         """
         Busca a métrica 'follows_and_unfollows' do dia anterior.
-        Retorna um DataFrame pronto para a tabela 'instagram_crescimento'.
+        Retorna um DataFrame compatível com a tabela 'instagram_crescimento' (Chave Composta).
         """
         if not self.ig_account_id:
-            logging.warning(
-                "⚠️ IG_ACCOUNT_ID não fornecido. Pulando extração de seguidores do Instagram."
-            )
+            logging.warning("⚠️ IG_ACCOUNT_ID não fornecido.")
             return pd.DataFrame()
 
         # Define o período da busca (D-1 para pegar o dia completo fechado)
@@ -45,9 +43,6 @@ class InstagramProfileExtractor:
         }
 
         try:
-            logging.info(
-                f"🔎 Buscando crescimento de seguidores (IG: {self.ig_account_id}) para {ontem.strftime('%Y-%m-%d')}..."
-            )
             response = requests.get(url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -67,29 +62,31 @@ class InstagramProfileExtractor:
                         if "FOLLOWER" in dim_values:
                             seguidores_ganhos += int(result.get("value", 0))
                 else:
-                    # Fallback de segurança se a Meta não enviar a quebra
+                    # Fallback de segurança
                     seguidores_ganhos = int(metric_data.get("value", 0))
 
-            # Monta o DataFrame exato que o banco espera
+            # Monta o DataFrame exato que o banco espera (Agora com o ID da conta!)
             df = pd.DataFrame(
                 [
                     {
+                        "ig_account_id": self.ig_account_id,
                         "data_registro": ontem.strftime("%Y-%m-%d"),
                         "seguidores_ganhos": seguidores_ganhos,
                     }
                 ]
             )
 
-            logging.info(
-                f"✅ Sucesso: +{seguidores_ganhos} seguidores ganhos no dia {ontem.strftime('%d/%m/%Y')}."
-            )
             return df
 
         except requests.exceptions.HTTPError as err:
-            logging.error(f"❌ Erro HTTP na API do Instagram: {err}")
+            logging.error(
+                f"❌ Erro HTTP na API do Instagram ({self.ig_account_id}): {err}"
+            )
             if err.response is not None:
                 logging.error(f"Detalhe do erro: {err.response.text}")
             return pd.DataFrame()
         except Exception as e:
-            logging.error(f"❌ Erro inesperado na extração do Instagram: {e}")
+            logging.error(
+                f"❌ Erro inesperado na extração do Instagram ({self.ig_account_id}): {e}"
+            )
             return pd.DataFrame()

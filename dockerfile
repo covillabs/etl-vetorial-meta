@@ -16,5 +16,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 5. Copia todo o resto do seu código para dentro do container
 COPY . .
 
-# 6. Comando padrão ao iniciar: Rodar o script principal
+## 6. Comando padrão ao iniciar: Rodar o script principal
 CMD ["python", "main.py"]
