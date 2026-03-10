@@ -1,168 +1,108 @@
-# Vetorial ETL - Facebook Ads Integration
+# Vetorial ETL – Meta Marketing Data Pipeline
 
-Este projeto é um pipeline ETL (Extract, Transform, Load) de alta performance, projetado para extrair, processar e consolidar dados da **Meta Marketing API** (Facebook/Instagram Ads). Desenvolvido com foco em escalabilidade e auditabilidade, o sistema está pronto para produção em ambientes containerizados (Docker/Portainer).
+![Technical Documentation](https://img.shields.io/badge/Documentation-v2.5-blue?style=for-the-badge)
+![Data Engineering](https://img.shields.io/badge/Field-Data%20Engineering-orange?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen?style=for-the-badge)
 
----
-
-## 🚀 Status do Projeto: OPERACIONAL
-
-O ciclo completo de dados está implementado e validado:
-
-- **[E] Extraction:** Captura de insights granulares (ad-level) com segmentação por plataforma e posicionamento.
-- **[T] Transformation:** Motor de limpeza, normalização de métricas e deduplicação inteligente.
-- **[L] Load:** Persistência em PostgreSQL com suporte a operações de `UPSERT` e histórico bruto.
-- **[S] Scheduler:** Execução automática a cada 4 horas (built-in).
-- **[N] Notification:** Alertas de Erro/Status via Discord Webhook.
+A robust, production-grade ETL pipeline designed to ingest, normalize, and consolidate marketing performance data from the **Meta Marketing API** (Facebook & Instagram Ads) and the **Instagram Graph API**. This pipeline transforms raw API responses into high-fidelity analytics-ready tables in **PostgreSQL**.
 
 ---
 
-## 📂 Visão Geral da Arquitetura
+## 1. Project Overview
+In the modern digital laboratory, marketing data is the primary fuel for decision-making. However, extracting this data is notoriously difficult due to the volatile nature of social media APIs. This project serves as a reliable bridge between Meta’s complex nested JSON structures and a structured SQL environment, ensuring that marketing teams have access to a "Single Source of Truth."
 
-```plaintext
-vetorial-etl/
-├── main.py                 # Orquestrador + Scheduler (4h loop)
-├── Dockerfile              # Receita da Imagem Docker (Python 3.10-slim)
-├── docker-compose.yml      # Deploy (Portainer/Swarm)
-├── requirements.txt        # Dependências
-├── .env                    # Variáveis de ambiente (não versionado)
-├── src/
-│   ├── ingestion/
-│   │   └── extractor.py    # Cliente da API (Breakdowns + action_breakdowns)
-│   ├── transformation/
-│   │   └── cleaner.py      # Normalização, leads, seguidores, hash_id
-│   ├── load/
-│   │   └── postgres_loader.py  # UPSERT + Filtro de segurança (REQUIRED_COLUMNS)
-│   ├── notification/
-│   │   └── discord_alert.py    # Alertas via Discord Webhook
-│   └── utils/              # (vazio — scripts movidos para scripts/)
-└── scripts/
-    └── diagnostics/        # Ferramentas de diagnóstico e debug
-        ├── audit_api_payload.py    # Varredura de campos da API
-        ├── audit_metadata.py       # Checagem de atribuição e UTMs
-        ├── deep_scan_followers.py  # Scan profundo de seguidores
-        ├── inspect_api.py          # Mapeamento de actions por conta
-        ├── test_db.py              # Teste de conexão com PostgreSQL
-        └── test_pipeline.py        # Teste offline do cleaner (mock data)
+## 2. Business Problem
+Marketing agencies and data teams face significant hurdles when manually exporting or scripting Meta data:
+
+*   **Delayed Attribution:** Conversions (leads/sales) often happen days after the initial click. Standard daily extracts miss these updates.
+*   **Inconsistent API Responses:** The Meta API omits keys for metrics with zero values (e.g., if an ad had 0 clicks, the `clicks` key is missing entirely), causing schema breakages in naive scripts.
+*   **Action Type Complexity:** Conversions are buried inside a generic `actions` array, making it hard to distinguish between a "WhatsApp Message" and a "Website Lead."
+*   **Follower Tracking:** Associating follower growth specifically with paid acquisition vs. organic trends is difficult without granular breakdown data.
+
+## 3. Solution
+The Vetorial ETL pipeline addresses these pain points by:
+*   Implementing a **rolling extraction window** to capture attribution updates.
+*   A **Strict Schema Filter** that provides default zero values for missing API keys.
+*   A **Hierarchical Action Parser** that unifies diverse conversion signals into logical business metrics.
+*   **Granular Breakdowns** (Platform + Position) to identify which placements drive the best ROI.
+
+## 4. Architecture
+The system follows a modular ETL pattern, containerized with Docker for seamless deployment in Cloud or On-Premise environments.
+
+```mermaid
+graph LR
+    subgraph "External Source"
+        API[Meta Marketing API]
+        GRAPH[IG Graph API]
+    end
+
+    subgraph "Vetorial ETL Engine"
+        E[Extractor] --> |Raw JSON| C[Cleaner]
+        C --> |Normalized DataFrame| L[Loader]
+        C --> |Hash ID Logic| L
+        S[Internal Scheduler] --> E
+    end
+
+    subgraph "Data Storage"
+        L --> |UPSERT| PG[(PostgreSQL)]
+    end
+
+    subgraph "Analytics Layer"
+        PG --> BI[Metabase / PowerBI]
+        PG --> ML[Performance Forecasting]
+    end
 ```
 
-## 🛠️ Instalação e Configuração
+## 5. Data Model
+The pipeline populates the `insights_meta_ads` table, designed for high-performance analytical queries.
 
-1.  **Requisitos:**
-    - Python 3.10+
-    - Docker
-    - Acesso ao PostgreSQL (Local ou Hetzner)
-    - `.env` configurado com Token e IDs das Contas.
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `hash_id` | `VARCHAR(32)` | **Primary Key.** MD5 hash for idempotency. |
+| `id_anuncio` | `BIGINT` | Meta Ad ID. |
+| `data_registro` | `DATE` | The date the performance occurred. |
+| `spend` | `NUMERIC` | Amount spent in account currency. |
+| `leads_total` | `INTEGER` | Unified sum of Form, Site, and Message leads. |
+| `seguidores` | `INTEGER` | Instagram followers attributed to the ad. |
+| `plataforma` | `VARCHAR` | Facebook, Instagram, Messenger, or Audience Network. |
+| `posicionamento`| `VARCHAR` | Feed, Stories, Reels, etc. |
 
-2.  **Instalação Local:**
+## 6. ETL Design Decisions
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 🔄 30-Day Rolling Window
+To solve the **Delayed Attribution** problem, the pipeline re-fetches the last 30 days of data in every cycle. This ensures that if a user clicks an ad today but converts 7 days later, the conversion is correctly backfilled.
 
-3.  **Variáveis de Ambiente (.env):**
+### 🛡️ Idempotent Loads & UPSERT
+We use a **Load-or-Update** strategy. Instead of simple inserts, the pipeline utilizes a `hash_id` (generated from `ad_id` + `date` + `platform` + `position`). If a record with that hash already exists, the database updates the metrics; otherwise, it creates a new entry.
 
-    ```env
-    # Credenciais Meta
-    META_ACCESS_TOKEN=seu_token_aqui
-    META_AD_ACCOUNT_IDS=act_12345,act_67890
+### 🧩 Schema Safety Filter
+The `PostgresLoader` module maintains a `REQUIRED_COLUMNS` whitelist. This prevents "field bleed" (where Meta adds a new API field that doesn't exist in our DB) from crashing the pipeline, while highlighting missing essential fields via logs.
 
-    # Credenciais Banco
-    DB_HOST=seu_ip_ou_localhost
-    DB_NAME=postgres
-    DB_USER=seu_usuario
-    DB_PASS=sua_senha
+## 7. Scalability
+The pipeline is built for **Multi-Tenancy**. By configuring the `META_AD_ACCOUNT_IDS` environment variable as a comma-separated list, the engine iterates through dozens of accounts sequentially, maintaining isolation and error handling for each.
 
-    # Notificações
-    DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-    ```
+## 8. Example Analytics Use Cases
+With this structured data, organizations can answer:
+*   **Blended CPL:** "What is my true Cost Per Lead across Form + WhatsApp?"
+*   **Creative Fatigue:** "At what frequency does my CTR start to drop significantly?"
+*   **Placement Efficiency:** "Is Instagram Reels more cost-effective for followers than the Feed?"
+*   **Attribution Drift:** "How many leads are credited to ads 7+ days after the click?"
 
-## ⚡ Como Executar
+## 9. Lessons Learned (Meta API Quirks)
+*   **Field Fragmentation:** Some metrics like `link_clicks` appear both as root fields and inside the `actions` array. We prioritize the sum of both for maximum accuracy.
+*   **Rate Limiting:** Sequential processing with small sleep intervals (2s) is more reliable than aggressive parallel threading, which often triggers Meta's app-level rate limits.
+*   **Timezone Alignment:** Always force `TZ=America/Sao_Paulo` (or your local TZ) in Docker to avoid "shifted day" metrics where clicks at 11:59 PM land on the wrong date.
 
-**Via Docker (Produção):**
+## 10. Infrastructure
+*   **Language:** Python 3.10 (Optimized with Pandas/SQLAlchemy).
+*   **Containerization:** Docker & Docker Compose (Production ready for Portainer/Swarm).
+*   **Database:** PostgreSQL 14+ (Supports JSONB for raw data auditing).
+*   **Monitoring:** Integrated Discord Webhooks for real-time failure alerts.
 
-```bash
-# 1. Construir a imagem!
-docker build -t "nome-imagem" .
+## 11. Future Improvements
+*   **Orchestration:** Migration to **Apache Airflow** for complex dependency management.
+*   **Transformation:** Implementing **dbt (data build tool)** for T-layer modeling and documentation.
+*   **Expansion:** Integrating Google Ads and TikTok Ads APIs to create a unified cross-channel dashboard.
 
-# 2. Rodar o container
-docker run --env-file .env "nome-imagem"
-```
-
-**Via Terminal (Desenvolvimento):**
-
-```bash
-python main.py
-```
-
-**Rodar Testes Offline:**
-
-```bash
-python scripts/diagnostics/test_pipeline.py
-```
-
-## 📏 Regras de Negócio (Business Rules)
-
-Esta seção documenta a lógica aplicada aos dados durante o processamento.
-
-### 1. Estratégia de Extração (Janela de Tempo)
-
-O pipeline utiliza o parâmetro `date_preset='last_30d'` por padrão.
-
-- **Motivo:** A Meta pode atribuir conversões (leads/vendas) dias após o clique.
-- **Comportamento:** A cada execução, o script reprocessa os últimos 30 dias. Dados antigos são atualizados no banco (Update), e novos são inseridos (Insert). Campanhas pausadas há mais de 30 dias sem atividade são ignoradas automaticamente pela API.
-
-### 2. Granularidade e Chave Única (hash_id)
-
-Os dados não são salvos apenas por ID do anúncio. Eles são quebrados por onde o anúncio apareceu.
-A chave única (Primary Key) é um hash MD5 gerado a partir de:
-`ad_id + date_start + publisher_platform (IG/FB) + platform_position (Feed/Stories/Reels)`
-Isso permite saber exatamente quanto se gastou no "Instagram Stories" vs "Facebook Feed" para o mesmo anúncio.
-
-### 3. Tratamento de Dados Nulos
-
-A API da Meta omite colunas se a métrica for zero no dia (ex: se ninguém clicou, a chave `clicks` não vem).
-
-- **Regra:** O ETL verifica a existência da coluna; se não existir, força o valor 0 (inteiro) ou 0.0 (float) para evitar erros de cálculo.
-
-### 4. Mapeamento e Cálculos de Métricas
-
-O sistema normaliza nomes técnicos da API para nomes de negócio no Banco de Dados:
-
-| Métrica no Banco (Destino)  | Origem (Meta API / Breakdown)                                                       | Lógica / Fórmulas                                 |
-| :-------------------------- | :---------------------------------------------------------------------------------- | :------------------------------------------------ |
-| **valor_gasto**             | `spend`                                                                             | Arredondado para 2 casas decimais.                |
-| **impressoes**              | `impressions`                                                                       | Inteiro. Se nulo, 0.                              |
-| **clique_link**             | `inline_link_clicks` + `link_click` (actions)                                       | Soma dos dois campos (inline costuma vir zerado). |
-| **lead_formulario**         | `lead`, `onsite_conversion.lead_grouped`, `onsite_conversion.lead`                  | Conversões via Formulário Nativo.                 |
-| **lead_site**               | `onsite_web_lead`, `offsite_conversion.fb_pixel_lead`                               | Conversões via Pixel (Website).                   |
-| **lead_mensagem**           | `onsite_conversion.messaging_first_reply`, `total_messaging_connection`             | WhatsApp/Direct.                                  |
-| **seguidores_instagram**    | `onsite_conversion.post_save_follow`, `instagram_follower_count_total`, `page_like` | Novos seguidores.                                 |
-| **videoview_3s**            | `video_view` (de actions)                                                           | Visualizações > 3 segundos.                       |
-| **videoview_50**            | `video_p50_watched_actions`                                                         | Retenção: Usuários que viram 50% do vídeo.        |
-| **videoview_75**            | `video_p75_watched_actions`                                                         | Retenção: Usuários que viram 75% do vídeo.        |
-| **(instagram_crescimento)** | `follows_and_unfollows` (Graph API)                                                 | Saldo líquido de seguidores no dia anterior.      |
-
-### 5. Extração de Crescimento do Perfil (Instagram)
-
-Além dos anúncios, o pipeline extrai métricas orgânicas/perfil do Instagram:
-
-- **Fonte:** Instagram Graph API (`/insights`).
-- **Métrica:** `follows_and_unfollows` (Total de seguidores novos - Unfollows).
-- **Frequência:** Diária (busca sempre o dia anterior fechado `D-1`).
-- **Tabela:** `instagram_crescimento` (Upsert por `ig_account_id` + `data_registro`).
-- **Requisito:** Variável `META_IG_ACCOUNT_IDS` configurada (lista separada por vírgulas).
-
-### 5. Campos Calculados (Totais)
-
-Além dos dados brutos, o ETL gera colunas consolidadas para facilitar dashboards:
-
-- **lead (Total):** Soma de `lead_formulario` + `lead_site` + `lead_mensagem`.
-- **Nota:** O `hash_id` é composto pela combinação de: `ad_id` + `date_start` + `publisher_platform` + `platform_position`.
-
-### 6. Filtro de Segurança (REQUIRED_COLUMNS)
-
-O `postgres_loader.py` contém uma lista `REQUIRED_COLUMNS` que atua como trava de segurança:
-
-- Apenas colunas dessa lista são enviadas ao banco
-- Se o cleaner gerar colunas extras (ex: `reach`, `ctr`), elas são **ignoradas** silenciosamente
-- Se alguma coluna esperada estiver faltando, um **WARNING** é logado (mas o pipeline não trava)
+---
+*Maintained by the Data Engineering Team @ Covil Labs*
