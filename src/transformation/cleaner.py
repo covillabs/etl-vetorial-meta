@@ -51,7 +51,10 @@ class DataCleaner:
         clean_df["data_registro"] = df["date_start"]
         clean_df["account_id"] = df["account_id"]
         clean_df["nome_conta"] = df["account_name"]
+        clean_df["id_campanha"] = df.get("campaign_id", pd.Series(index=df.index, dtype=str))
         clean_df["campanha"] = df["campaign_name"]
+        clean_df["id_conjunto_anuncios"] = df.get("adset_id", pd.Series(index=df.index, dtype=str))
+        clean_df["conjunto_anuncios"] = df.get("adset_name", pd.Series(index=df.index, dtype=str))
         clean_df["anuncio"] = df["ad_name"]
         clean_df["plataforma"] = df.get(
             "publisher_platform", pd.Series("unknown", index=df.index)
@@ -73,12 +76,14 @@ class DataCleaner:
         # -----------------------------------------------------------------
         # 3. TRATAMENTO SEGURO DE ACTIONS
         # -----------------------------------------------------------------
-        # Garante que cada célula seja uma lista, nunca NaN ou string
         actions_safe = df.get("actions", pd.Series(dtype=object)).apply(
             lambda x: x if isinstance(x, list) else []
         )
+        action_values_safe = df.get("action_values", pd.Series(dtype=object)).apply(
+            lambda x: x if isinstance(x, list) else []
+        )
 
-        # --- CLIQUES (inline raiz + link_click de actions) ---
+        # --- CLIQUES ---
         cliques_inline = (
             pd.to_numeric(df.get("inline_link_clicks"), errors="coerce")
             .fillna(0)
@@ -88,6 +93,11 @@ class DataCleaner:
             lambda x: self.extract_action_value(x, ["link_click"])
         )
         clean_df["clique_link"] = cliques_inline + cliques_actions
+
+        outbound_clicks = df.get("outbound_clicks", pd.Series(dtype=object)).apply(
+            lambda x: self.extract_action_value(x, ["outbound_click"]) if isinstance(x, list) else 0
+        )
+        clean_df["cliques_saida"] = outbound_clicks
 
         # --- LEADS (3 origens unificadas) ---
         # Formulário: leads gerados dentro do Facebook/Instagram
@@ -102,7 +112,17 @@ class DataCleaner:
                 x, ["onsite_web_lead", "offsite_conversion.fb_pixel_lead"]
             )
         )
-        # Mensagem: leads via WhatsApp/Direct/Messenger
+        # Mensagem: conversas iniciadas e contatos (agrupado para manter compatibilidade com lead_mensagem e preencher as novas colunas)
+        clean_df["conversas_iniciadas"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_conversation_started_7d"]
+            )
+        )
+        clean_df["novos_contatos_mensagem"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_first_reply"]
+            )
+        )
         clean_df["lead_mensagem"] = actions_safe.apply(
             lambda x: self.extract_action_value(
                 x,
@@ -119,7 +139,7 @@ class DataCleaner:
             + clean_df["lead_mensagem"]
         )
 
-        # --- SEGUIDORES (Instagram + Facebook) ---
+        # --- SEGUIDORES E PERFIL ---
         clean_df["seguidores_instagram"] = actions_safe.apply(
             lambda x: self.extract_action_value(
                 x,
@@ -130,6 +150,27 @@ class DataCleaner:
                 ],
             )
         )
+        clean_df["visitas_perfil"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["instagram_profile_views"])
+        )
+
+        # --- CONVERSÕES DE E-COMMERCE / PERFORMANCE ---
+        clean_df["lp_view"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["landing_page_view"])
+        )
+        clean_df["contato"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["contact", "offsite_conversion.fb_pixel_contact"])
+        )
+        clean_df["initiate_checkout"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"])
+        )
+        clean_df["compras"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        )
+        clean_df["valor_compra"] = action_values_safe.apply(
+            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        ).astype(float).round(2)
+
 
         # --- VIDEO VIEWS ---
         # 3s: vem como 'video_view' dentro da lista de actions
