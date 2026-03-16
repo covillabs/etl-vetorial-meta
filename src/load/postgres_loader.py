@@ -37,7 +37,6 @@ REQUIRED_COLUMNS = [
     "videoview_3s",
     "videoview_50",
     "videoview_75",
-    "lead",
     "hash_id",
     "raw_data",
 ]
