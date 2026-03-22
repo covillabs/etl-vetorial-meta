@@ -11,11 +11,15 @@ class MetaExtractor:
         self.access_token = os.getenv("META_ACCESS_TOKEN")
         FacebookAdsApi.init(access_token=self.access_token)
 
-    def get_ad_insights(self, date_preset: str = "last_30d") -> list[dict]:
+    def get_ad_insights(
+        self, date_preset: str = "last_30d", time_range: dict = None
+    ) -> list[dict]:
         """Extrai insights granulares por anúncio com breakdowns de plataforma.
 
         Args:
             date_preset: Janela de tempo da API (ex: 'last_30d', 'last_90d').
+            time_range: Dict opcional {'since': 'YYYY-MM-DD', 'until': 'YYYY-MM-DD'}.
+                        Se fornecido, ignora o date_preset.
 
         Returns:
             Lista de dicts com os dados brutos de cada anúncio/dia/plataforma.
@@ -44,16 +48,20 @@ class MetaExtractor:
 
         params = {
             "level": "ad",
-            "date_preset": date_preset,
             "time_increment": 1,
             "limit": 500,
             "breakdowns": ["publisher_platform", "platform_position"],
             "action_breakdowns": ["action_type"],
         }
 
-        print(
-            f"📥 [Ingestion] Baixando dados da conta {self.account_id} ({date_preset})..."
-        )
+        if time_range:
+            params["time_range"] = time_range
+            label = f"range {time_range['since']} até {time_range['until']}"
+        else:
+            params["date_preset"] = date_preset
+            label = date_preset
+
+        print(f"📥 [Ingestion] Baixando dados da conta {self.account_id} ({label})...")
 
         try:
             insights = account.get_insights(fields=fields, params=params)

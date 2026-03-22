@@ -67,7 +67,7 @@ class DataCleaner:
         # 2. MÉTRICAS NUMÉRICAS DIRETAS
         # -----------------------------------------------------------------
         clean_df["valor_gasto"] = (
-            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0).round(2)
+            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0)
         )
         clean_df["impressoes"] = (
             pd.to_numeric(df.get("impressions"), errors="coerce").fillna(0).astype(int)
@@ -169,7 +169,7 @@ class DataCleaner:
         )
         clean_df["valor_compra"] = action_values_safe.apply(
             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
-        ).astype(float).round(2)
+        ).astype(float)
 
 
         # --- VIDEO VIEWS ---

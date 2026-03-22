@@ -407038,6 +407038,62 @@ p a n d a s 
  s c h e d u l e 
 
 ============================================================
+ARQUIVO: .\test_roas.py
+============================================================
+import os
+import json
+from dotenv import load_dotenv
+from src.ingestion.extractor import MetaExtractor
+
+def test_purchases():
+    load_dotenv()
+    accounts = os.getenv("META_AD_ACCOUNT_IDS", "").split(",")
+    valid_accounts = [acc.strip() for acc in accounts if acc.strip()]
+    
+    if not valid_accounts:
+        print("Nenhuma conta configurada.")
+        return
+
+    print("Testando contas em busca de COMPRAS (purchases)...")
+    
+    for acc in valid_accounts:
+        print(f"\n--- Verificando Conta: {acc} ---")
+        try:
+            extractor = MetaExtractor(acc)
+            # Pegando os últimos 30 dias
+            data = extractor.get_ad_insights(date_preset="last_30d")
+            
+            purchases_found = 0
+            total_purchase_value = 0.0
+            
+            for row in data:
+                # Procura nas actions
+                actions = row.get("actions", [])
+                action_values = row.get("action_values", [])
+                
+                # Check for purchase in actions
+                if isinstance(actions, list):
+                    for action in actions:
+                        if action.get("action_type") in ["purchase", "offsite_conversion.fb_pixel_purchase"]:
+                            purchases_found += int(float(action.get("value", 0)))
+                            
+                # Check for purchase in action_values (ROAS/Valor)
+                if isinstance(action_values, list):
+                    for val in action_values:
+                        if val.get("action_type") in ["purchase", "offsite_conversion.fb_pixel_purchase"]:
+                            total_purchase_value += float(val.get("value", 0))
+            
+            print(f"Total de eventos de Compra Encontrados na API: {purchases_found}")
+            print(f"Soma do Valor de Compras (Receita) na API: R$ {total_purchase_value:.2f}")
+            
+        except Exception as e:
+            print(f"Erro ao verificar conta {acc}: {e}")
+
+if __name__ == "__main__":
+    test_purchases()
+
+
+============================================================
 ARQUIVO: .\scripts\export_docs.py
 ============================================================
 import os
@@ -407161,6 +407217,115 @@ def find_instagram_id():
 
 if __name__ == "__main__":
     find_instagram_id()
+
+
+============================================================
+ARQUIVO: .\scripts\reprocess_history.py
+============================================================
+import os
+import sys
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+
+# Ajusta o PYTHONPATH para garantir que ele ache o pacote src/ se executado da raiz
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.ingestion.extractor import MetaExtractor
+from src.transformation.cleaner import DataCleaner
+from src.load.postgres_loader import PostgresLoader
+from src.notification.discord_alert import DiscordAlert
+
+load_dotenv()
+
+# Definimos o range de novembro de 2025 em diante
+ACCOUNTS = os.getenv("META_AD_ACCOUNT_IDS", "").split(",")
+TIME_RANGE = {
+    "since": "2025-11-01",
+    "until": datetime.now().strftime("%Y-%m-%d"),
+}
+
+alert = DiscordAlert()
+
+def run_historical_reprocess():
+    start_time = datetime.now()
+    print("\n" + "=" * 60)
+    print(
+        f"⏳ COVIL LABS - REPROCESSAMENTO HISTÓRICO - {start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    print("=" * 60)
+
+    try:
+        cleaner = DataCleaner()
+        loader = PostgresLoader()
+
+        total_processado = 0
+        erros_lista = []
+
+        # ==========================================
+        # BLOCO DE ANÚNCIOS (META ADS)
+        # ==========================================
+        for account_id in ACCOUNTS:
+            acc_id = account_id.strip()
+            if not acc_id:
+                continue
+
+            print(f"\n🚀 Conta Ads: {acc_id} (Período: {TIME_RANGE['since']} até {TIME_RANGE['until']})")
+
+            try:
+                extractor = MetaExtractor(acc_id)
+                
+                # CUIDADO: se a conta for EXTREMAMENTE grande (dezena de milhares de anúncios ativos/pausados),
+                # o limit da Meta pode precisar de paginação maior, mas o extractor default lida com requests.
+                raw_data = extractor.get_ad_insights(time_range=TIME_RANGE)
+
+                if not raw_data:
+                    print("⚠️ Sem dados para esta conta.")
+                    continue
+
+                # 2. Transformação (agora com floats exatos, sem .round())
+                clean_df = cleaner.transform(raw_data)
+                
+                # 3. UPSERT: Como a Primary Key é hash_id(ad + data + plataforma), ele vai atualizar
+                # todos os registros das datas antigas sobrescrevendo a métrica exata!
+                loader.upsert_data(clean_df, raw_data)
+
+                total_processado += len(clean_df)
+                print("✅ Histórico da conta finalizado.")
+                time.sleep(2)
+
+            except Exception as e:
+                erro_msg = f"Falha no histórico da conta Ads {acc_id}: {e}"
+                print(f"❌ {erro_msg}")
+                erros_lista.append(erro_msg)
+
+        # Não puxamos histórico de Instagram neste script porque a métrica follows_and_unfollows
+        # não aceita "maximum" de forma retroativa infinita com perfeição sem paginação pesada/granular diária limite de 30 dias.
+
+        end_time = datetime.now()
+        duration = end_time - start_time
+
+        msg_final = (
+            f"**Reprocessamento Finalizado!**\n"
+            f"⏱️ Duração da Execução: {duration}\n"
+            f"📊 Histórico Atualizado: {total_processado} linhas"
+        )
+        print(f"\n🏁 {msg_final}")
+
+        if erros_lista:
+            alert.send(
+                f"{msg_final}\n\n**Erros no Reprocessamento:**\n{chr(10).join(erros_lista)}", level="error"
+            )
+
+    except Exception as e_critico:
+        msg_crash = f"💥 FALHA CRÍTICA NO REPROCESSAMENTO!\nErro: {str(e_critico)}"
+        print(msg_crash)
+        alert.send(msg_crash, level="error")
+
+
+if __name__ == "__main__":
+    print("🕰️ Iniciando script manual de Carga Histórica...")
+    run_historical_reprocess()
 
 
 ============================================================
@@ -407664,11 +407829,15 @@ class MetaExtractor:
         self.access_token = os.getenv("META_ACCESS_TOKEN")
         FacebookAdsApi.init(access_token=self.access_token)
 
-    def get_ad_insights(self, date_preset: str = "last_30d") -> list[dict]:
+    def get_ad_insights(
+        self, date_preset: str = "last_30d", time_range: dict = None
+    ) -> list[dict]:
         """Extrai insights granulares por anúncio com breakdowns de plataforma.
 
         Args:
             date_preset: Janela de tempo da API (ex: 'last_30d', 'last_90d').
+            time_range: Dict opcional {'since': 'YYYY-MM-DD', 'until': 'YYYY-MM-DD'}.
+                        Se fornecido, ignora o date_preset.
 
         Returns:
             Lista de dicts com os dados brutos de cada anúncio/dia/plataforma.
@@ -407678,11 +407847,16 @@ class MetaExtractor:
         fields = [
             "ad_id",
             "ad_name",
+            "campaign_id",
             "campaign_name",
+            "adset_id",
+            "adset_name",
             "spend",
             "impressions",
             "inline_link_clicks",
+            "outbound_clicks",
             "actions",
+            "action_values",
             "date_start",
             "account_id",
             "account_name",
@@ -407692,16 +407866,20 @@ class MetaExtractor:
 
         params = {
             "level": "ad",
-            "date_preset": date_preset,
             "time_increment": 1,
             "limit": 500,
             "breakdowns": ["publisher_platform", "platform_position"],
             "action_breakdowns": ["action_type"],
         }
 
-        print(
-            f"📥 [Ingestion] Baixando dados da conta {self.account_id} ({date_preset})..."
-        )
+        if time_range:
+            params["time_range"] = time_range
+            label = f"range {time_range['since']} até {time_range['until']}"
+        else:
+            params["date_preset"] = date_preset
+            label = date_preset
+
+        print(f"📥 [Ingestion] Baixando dados da conta {self.account_id} ({label})...")
 
         try:
             insights = account.get_insights(fields=fields, params=params)
@@ -407832,21 +408010,33 @@ REQUIRED_COLUMNS = [
     "data_registro",
     "account_id",
     "nome_conta",
+    "id_campanha",
     "campanha",
+    "id_conjunto_anuncios",
+    "conjunto_anuncios",
     "anuncio",
     "plataforma",
     "posicionamento",
     "valor_gasto",
     "impressoes",
+    "cliques_saida",
     "clique_link",
+    "lp_view",
     "lead_formulario",
     "lead_site",
     "lead_mensagem",
+    "lead",
+    "contato",
+    "conversas_iniciadas",
+    "novos_contatos_mensagem",
     "seguidores_instagram",
+    "visitas_perfil",
+    "initiate_checkout",
+    "compras",
+    "valor_compra",
     "videoview_3s",
     "videoview_50",
     "videoview_75",
-    "lead",
     "hash_id",
     "raw_data",
 ]
@@ -407892,15 +408082,24 @@ class PostgresLoader:
         cols_numericas = [
             "valor_gasto",
             "impressoes",
+            "cliques_saida",
             "clique_link",
+            "lp_view",
             "lead_formulario",
             "lead_site",
             "lead_mensagem",
+            "lead",
+            "contato",
+            "conversas_iniciadas",
+            "novos_contatos_mensagem",
             "seguidores_instagram",
+            "visitas_perfil",
+            "initiate_checkout",
+            "compras",
+            "valor_compra",
             "videoview_3s",
             "videoview_50",
             "videoview_75",
-            "lead",
         ]
         for col in cols_numericas:
             if col in df.columns:
@@ -407934,35 +408133,48 @@ class PostgresLoader:
 
             upsert_query = text("""
                 INSERT INTO insights_meta_ads (
-                    id_anuncio, data_registro, account_id, nome_conta, campanha,
-                    anuncio, plataforma, posicionamento, valor_gasto, impressoes,
-                    clique_link, lead_formulario, lead_site, lead_mensagem,
-                    seguidores_instagram, videoview_3s, videoview_50, videoview_75,
-                    lead, hash_id, raw_data
+                    id_anuncio, data_registro, account_id, nome_conta, id_campanha, campanha,
+                    id_conjunto_anuncios, conjunto_anuncios, anuncio, plataforma, posicionamento, valor_gasto, impressoes,
+                    cliques_saida, clique_link, lp_view, lead_formulario, lead_site, lead_mensagem, lead,
+                    contato, conversas_iniciadas, novos_contatos_mensagem,
+                    seguidores_instagram, visitas_perfil, initiate_checkout, compras, valor_compra,
+                    videoview_3s, videoview_50, videoview_75,
+                    hash_id, raw_data
                 )
                 SELECT
                     id_anuncio,
                     CAST(data_registro AS DATE),
-                    account_id, nome_conta, campanha,
-                    anuncio, plataforma, posicionamento,
+                    account_id, nome_conta, id_campanha, campanha,
+                    id_conjunto_anuncios, conjunto_anuncios, anuncio, plataforma, posicionamento,
                     CAST(valor_gasto AS NUMERIC),
-                    impressoes, clique_link, lead_formulario, lead_site, lead_mensagem,
-                    seguidores_instagram, videoview_3s, videoview_50, videoview_75,
-                    lead, hash_id,
+                    impressoes, cliques_saida, clique_link, lp_view, lead_formulario, lead_site, lead_mensagem, lead,
+                    contato, conversas_iniciadas, novos_contatos_mensagem,
+                    seguidores_instagram, visitas_perfil, initiate_checkout, compras, CAST(valor_compra AS NUMERIC),
+                    videoview_3s, videoview_50, videoview_75,
+                    hash_id,
                     CAST(raw_data AS JSONB)
                 FROM temp_meta_insights
                 ON CONFLICT (hash_id) DO UPDATE SET
                     valor_gasto = EXCLUDED.valor_gasto,
                     impressoes = EXCLUDED.impressoes,
+                    cliques_saida = EXCLUDED.cliques_saida,
                     clique_link = EXCLUDED.clique_link,
+                    lp_view = EXCLUDED.lp_view,
                     lead_formulario = EXCLUDED.lead_formulario,
                     lead_site = EXCLUDED.lead_site,
                     lead_mensagem = EXCLUDED.lead_mensagem,
+                    lead = EXCLUDED.lead,
+                    contato = EXCLUDED.contato,
+                    conversas_iniciadas = EXCLUDED.conversas_iniciadas,
+                    novos_contatos_mensagem = EXCLUDED.novos_contatos_mensagem,
                     seguidores_instagram = EXCLUDED.seguidores_instagram,
+                    visitas_perfil = EXCLUDED.visitas_perfil,
+                    initiate_checkout = EXCLUDED.initiate_checkout,
+                    compras = EXCLUDED.compras,
+                    valor_compra = EXCLUDED.valor_compra,
                     videoview_3s = EXCLUDED.videoview_3s,
                     videoview_50 = EXCLUDED.videoview_50,
                     videoview_75 = EXCLUDED.videoview_75,
-                    lead = EXCLUDED.lead,
                     raw_data = EXCLUDED.raw_data,
                     data_insercao = CURRENT_TIMESTAMP;
             """)
@@ -408094,7 +408306,10 @@ class DataCleaner:
         clean_df["data_registro"] = df["date_start"]
         clean_df["account_id"] = df["account_id"]
         clean_df["nome_conta"] = df["account_name"]
+        clean_df["id_campanha"] = df.get("campaign_id", pd.Series(index=df.index, dtype=str))
         clean_df["campanha"] = df["campaign_name"]
+        clean_df["id_conjunto_anuncios"] = df.get("adset_id", pd.Series(index=df.index, dtype=str))
+        clean_df["conjunto_anuncios"] = df.get("adset_name", pd.Series(index=df.index, dtype=str))
         clean_df["anuncio"] = df["ad_name"]
         clean_df["plataforma"] = df.get(
             "publisher_platform", pd.Series("unknown", index=df.index)
@@ -408107,7 +408322,7 @@ class DataCleaner:
         # 2. MÉTRICAS NUMÉRICAS DIRETAS
         # -----------------------------------------------------------------
         clean_df["valor_gasto"] = (
-            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0).round(2)
+            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0)
         )
         clean_df["impressoes"] = (
             pd.to_numeric(df.get("impressions"), errors="coerce").fillna(0).astype(int)
@@ -408116,12 +408331,14 @@ class DataCleaner:
         # -----------------------------------------------------------------
         # 3. TRATAMENTO SEGURO DE ACTIONS
         # -----------------------------------------------------------------
-        # Garante que cada célula seja uma lista, nunca NaN ou string
         actions_safe = df.get("actions", pd.Series(dtype=object)).apply(
             lambda x: x if isinstance(x, list) else []
         )
+        action_values_safe = df.get("action_values", pd.Series(dtype=object)).apply(
+            lambda x: x if isinstance(x, list) else []
+        )
 
-        # --- CLIQUES (inline raiz + link_click de actions) ---
+        # --- CLIQUES ---
         cliques_inline = (
             pd.to_numeric(df.get("inline_link_clicks"), errors="coerce")
             .fillna(0)
@@ -408131,6 +408348,11 @@ class DataCleaner:
             lambda x: self.extract_action_value(x, ["link_click"])
         )
         clean_df["clique_link"] = cliques_inline + cliques_actions
+
+        outbound_clicks = df.get("outbound_clicks", pd.Series(dtype=object)).apply(
+            lambda x: self.extract_action_value(x, ["outbound_click"]) if isinstance(x, list) else 0
+        )
+        clean_df["cliques_saida"] = outbound_clicks
 
         # --- LEADS (3 origens unificadas) ---
         # Formulário: leads gerados dentro do Facebook/Instagram
@@ -408145,7 +408367,17 @@ class DataCleaner:
                 x, ["onsite_web_lead", "offsite_conversion.fb_pixel_lead"]
             )
         )
-        # Mensagem: leads via WhatsApp/Direct/Messenger
+        # Mensagem: conversas iniciadas e contatos (agrupado para manter compatibilidade com lead_mensagem e preencher as novas colunas)
+        clean_df["conversas_iniciadas"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_conversation_started_7d"]
+            )
+        )
+        clean_df["novos_contatos_mensagem"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_first_reply"]
+            )
+        )
         clean_df["lead_mensagem"] = actions_safe.apply(
             lambda x: self.extract_action_value(
                 x,
@@ -408162,7 +408394,7 @@ class DataCleaner:
             + clean_df["lead_mensagem"]
         )
 
-        # --- SEGUIDORES (Instagram + Facebook) ---
+        # --- SEGUIDORES E PERFIL ---
         clean_df["seguidores_instagram"] = actions_safe.apply(
             lambda x: self.extract_action_value(
                 x,
@@ -408173,6 +408405,27 @@ class DataCleaner:
                 ],
             )
         )
+        clean_df["visitas_perfil"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["instagram_profile_views"])
+        )
+
+        # --- CONVERSÕES DE E-COMMERCE / PERFORMANCE ---
+        clean_df["lp_view"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["landing_page_view"])
+        )
+        clean_df["contato"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["contact", "offsite_conversion.fb_pixel_contact"])
+        )
+        clean_df["initiate_checkout"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"])
+        )
+        clean_df["compras"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        )
+        clean_df["valor_compra"] = action_values_safe.apply(
+            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        ).astype(float)
+
 
         # --- VIDEO VIEWS ---
         # 3s: vem como 'video_view' dentro da lista de actions
