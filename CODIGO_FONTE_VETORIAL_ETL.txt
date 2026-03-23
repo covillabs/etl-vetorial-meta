@@ -408637,21 +408637,38 @@ import pandas as pd
 class DataCleaner:
     """Transforma dados brutos da Meta Marketing API em DataFrame normalizado."""
 
-    def extract_action_value(self, actions_list: list, action_types: list[str], return_type=int) -> float | int:
+    def extract_action_value(self, actions_list: list, action_types: list[str]) -> int:
         """Soma valores de actions filtrados por tipo.
 
         Args:
             actions_list: Lista de dicts [{'action_type': str, 'value': str}].
             action_types: Tipos de action a serem somados.
-            return_type: Tipo de retorno (int ou float, default: int).
 
         Returns:
-            Soma dos valores encontrados em actions_list que batem com action_types.
+            Soma inteira dos valores encontrados em actions_list que batem com action_types.
         """
         if not isinstance(actions_list, list):
-            return 0 if return_type is int else 0.0
+            return 0
         return sum(
-            return_type(float(a.get("value", 0)))
+            int(float(a.get("value", 0)))
+            for a in actions_list
+            if a.get("action_type") in action_types
+        )
+
+    def extract_action_value_float(self, actions_list: list, action_types: list[str]) -> float:
+        """Soma valores de actions filtrados por tipo mantendo os decimais originais.
+
+        Args:
+            actions_list: Lista de dicts [{'action_type': str, 'value': str}].
+            action_types: Tipos de action a serem somados.
+
+        Returns:
+            Soma exata (float) dos valores encontrados.
+        """
+        if not isinstance(actions_list, list):
+            return 0.0
+        return sum(
+            float(a.get("value", 0))
             for a in actions_list
             if a.get("action_type") in action_types
         )
@@ -408801,7 +408818,7 @@ class DataCleaner:
             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
         )
         clean_df["valor_compra"] = action_values_safe.apply(
-            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"], return_type=float)
+            lambda x: self.extract_action_value_float(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
         ).astype(float)
 
 
