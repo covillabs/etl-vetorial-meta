@@ -23,6 +23,24 @@ class DataCleaner:
             if a.get("action_type") in action_types
         )
 
+    def extract_action_value_float(self, actions_list: list, action_types: list[str]) -> float:
+        """Soma valores de actions filtrados por tipo mantendo os decimais originais.
+
+        Args:
+            actions_list: Lista de dicts [{'action_type': str, 'value': str}].
+            action_types: Tipos de action a serem somados.
+
+        Returns:
+            Soma exata (float) dos valores encontrados.
+        """
+        if not isinstance(actions_list, list):
+            return 0.0
+        return sum(
+            float(a.get("value", 0))
+            for a in actions_list
+            if a.get("action_type") in action_types
+        )
+
     def transform(self, raw_data: list[dict]) -> pd.DataFrame:
         """Recebe JSON bruto da API, retorna DataFrame com colunas normalizadas.
 
@@ -168,7 +186,7 @@ class DataCleaner:
             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
         )
         clean_df["valor_compra"] = action_values_safe.apply(
-            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+            lambda x: self.extract_action_value_float(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
         ).astype(float)
 
 
