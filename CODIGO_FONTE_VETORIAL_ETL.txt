@@ -1209,6 +1209,43 @@ ARQUIVO: .\DOCUMENTACAO_TECNICA.md
 
 
 ============================================================
+ARQUIVO: .\git_log_cleaner.txt
+============================================================
+﻿commit b00478c07d66e92d2044733ec95b913fb755a5cf
+Author: luanazevedo7 <euluangomes7@gmail.com>
+Date:   Sun Mar 22 00:09:07 2026 -0300
+
+    feat: enhance metric precision and add historical reprocessing utility
+    
+    - Removed .round(2) from cleaner.py for valor_gasto and valor_compra to preserve full decimal precision.
+    - Updated MetaExtractor to support custom 'time_range' parameter.
+    - Added scripts/reprocess_history.py to fetch data from Nov 2025 onwards and update historical database records with full precision values via UPSERT.
+
+diff --git a/src/transformation/cleaner.py b/src/transformation/cleaner.py
+index 07ede60..b377839 100644
+--- a/src/transformation/cleaner.py
++++ b/src/transformation/cleaner.py
+@@ -67,7 +67,7 @@ class DataCleaner:
+         # 2. M├ëTRICAS NUM├ëRICAS DIRETAS
+         # -----------------------------------------------------------------
+         clean_df["valor_gasto"] = (
+-            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0).round(2)
++            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0)
+         )
+         clean_df["impressoes"] = (
+             pd.to_numeric(df.get("impressions"), errors="coerce").fillna(0).astype(int)
+@@ -169,7 +169,7 @@ class DataCleaner:
+         )
+         clean_df["valor_compra"] = action_values_safe.apply(
+             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+-        ).astype(float).round(2)
++        ).astype(float)
+ 
+ 
+         # --- VIDEO VIEWS ---
+
+
+============================================================
 ARQUIVO: .\main.py
 ============================================================
 import os
@@ -406973,9 +407010,11 @@ The pipeline populates the `insights_meta_ads` table, designed for high-performa
 | `hash_id` | `VARCHAR(32)` | **Primary Key.** MD5 hash for idempotency. |
 | `id_anuncio` | `BIGINT` | Meta Ad ID. |
 | `data_registro` | `DATE` | The date the performance occurred. |
-| `spend` | `NUMERIC` | Amount spent in account currency. |
-| `leads_total` | `INTEGER` | Unified sum of Form, Site, and Message leads. |
-| `seguidores` | `INTEGER` | Instagram followers attributed to the ad. |
+| `valor_gasto` | `NUMERIC` | Amount spent in account currency (exact API decimal value). |
+| `valor_compra` | `NUMERIC` | Revenue from purchases (exact API decimal value). |
+| `compras` | `INTEGER` | Total purchase events tracked. |
+| `lead` | `INTEGER` | Unified sum of Form, Site, and Message leads. |
+| `seguidores_instagram` | `INTEGER` | Instagram followers attributed to the ad. |
 | `plataforma` | `VARCHAR` | Facebook, Instagram, Messenger, or Audience Network. |
 | `posicionamento`| `VARCHAR` | Feed, Stories, Reels, etc. |
 
@@ -407001,6 +407040,7 @@ With this structured data, organizations can answer:
 *   **Attribution Drift:** "How many leads are credited to ads 7+ days after the click?"
 
 ## 9. Lessons Learned (Meta API Quirks)
+*   **Decimal Precision in Financial Metrics:** Meta's `actions` array for events like purchases embeds the conversion value as strings ("value": "150.25"). Extracting these values safely requires exact float conversion, preventing integer truncation in analytics.
 *   **Field Fragmentation:** Some metrics like `link_clicks` appear both as root fields and inside the `actions` array. We prioritize the sum of both for maximum accuracy.
 *   **Rate Limiting:** Sequential processing with small sleep intervals (2s) is more reliable than aggressive parallel threading, which often triggers Meta's app-level rate limits.
 *   **Timezone Alignment:** Always force `TZ=America/Sao_Paulo` (or your local TZ) in Docker to avoid "shifted day" metrics where clicks at 11:59 PM land on the wrong date.
@@ -407217,6 +407257,115 @@ def find_instagram_id():
 
 if __name__ == "__main__":
     find_instagram_id()
+
+
+============================================================
+ARQUIVO: .\scripts\reprocess_history-DESKTOP-3JE7BT1.py
+============================================================
+import os
+import sys
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+
+# Ajusta o PYTHONPATH para garantir que ele ache o pacote src/ se executado da raiz
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.ingestion.extractor import MetaExtractor
+from src.transformation.cleaner import DataCleaner
+from src.load.postgres_loader import PostgresLoader
+from src.notification.discord_alert import DiscordAlert
+
+load_dotenv()
+
+# Definimos o range de novembro de 2025 em diante
+ACCOUNTS = os.getenv("META_AD_ACCOUNT_IDS", "").split(",")
+TIME_RANGE = {
+    "since": "2025-11-01",
+    "until": datetime.now().strftime("%Y-%m-%d"),
+}
+
+alert = DiscordAlert()
+
+def run_historical_reprocess():
+    start_time = datetime.now()
+    print("\n" + "=" * 60)
+    print(
+        f"⏳ COVIL LABS - REPROCESSAMENTO HISTÓRICO - {start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    print("=" * 60)
+
+    try:
+        cleaner = DataCleaner()
+        loader = PostgresLoader()
+
+        total_processado = 0
+        erros_lista = []
+
+        # ==========================================
+        # BLOCO DE ANÚNCIOS (META ADS)
+        # ==========================================
+        for account_id in ACCOUNTS:
+            acc_id = account_id.strip()
+            if not acc_id:
+                continue
+
+            print(f"\n🚀 Conta Ads: {acc_id} (Período: {TIME_RANGE['since']} até {TIME_RANGE['until']})")
+
+            try:
+                extractor = MetaExtractor(acc_id)
+                
+                # CUIDADO: se a conta for EXTREMAMENTE grande (dezena de milhares de anúncios ativos/pausados),
+                # o limit da Meta pode precisar de paginação maior, mas o extractor default lida com requests.
+                raw_data = extractor.get_ad_insights(time_range=TIME_RANGE)
+
+                if not raw_data:
+                    print("⚠️ Sem dados para esta conta.")
+                    continue
+
+                # 2. Transformação (agora com floats exatos, sem .round())
+                clean_df = cleaner.transform(raw_data)
+                
+                # 3. UPSERT: Como a Primary Key é hash_id(ad + data + plataforma), ele vai atualizar
+                # todos os registros das datas antigas sobrescrevendo a métrica exata!
+                loader.upsert_data(clean_df, raw_data)
+
+                total_processado += len(clean_df)
+                print("✅ Histórico da conta finalizado.")
+                time.sleep(2)
+
+            except Exception as e:
+                erro_msg = f"Falha no histórico da conta Ads {acc_id}: {e}"
+                print(f"❌ {erro_msg}")
+                erros_lista.append(erro_msg)
+
+        # Não puxamos histórico de Instagram neste script porque a métrica follows_and_unfollows
+        # não aceita "maximum" de forma retroativa infinita com perfeição sem paginação pesada/granular diária limite de 30 dias.
+
+        end_time = datetime.now()
+        duration = end_time - start_time
+
+        msg_final = (
+            f"**Reprocessamento Finalizado!**\n"
+            f"⏱️ Duração da Execução: {duration}\n"
+            f"📊 Histórico Atualizado: {total_processado} linhas"
+        )
+        print(f"\n🏁 {msg_final}")
+
+        if erros_lista:
+            alert.send(
+                f"{msg_final}\n\n**Erros no Reprocessamento:**\n{chr(10).join(erros_lista)}", level="error"
+            )
+
+    except Exception as e_critico:
+        msg_crash = f"💥 FALHA CRÍTICA NO REPROCESSAMENTO!\nErro: {str(e_critico)}"
+        print(msg_crash)
+        alert.send(msg_crash, level="error")
+
+
+if __name__ == "__main__":
+    print("🕰️ Iniciando script manual de Carga Histórica...")
+    run_historical_reprocess()
 
 
 ============================================================
@@ -408251,7 +408400,7 @@ ARQUIVO: .\src\notification\__init__.py
 
 
 ============================================================
-ARQUIVO: .\src\transformation\cleaner.py
+ARQUIVO: .\src\transformation\cleaner-DESKTOP-3JE7BT1.py
 ============================================================
 import hashlib
 import pandas as pd
@@ -408274,6 +408423,24 @@ class DataCleaner:
             return 0
         return sum(
             int(float(a.get("value", 0)))
+            for a in actions_list
+            if a.get("action_type") in action_types
+        )
+
+    def extract_action_value_float(self, actions_list: list, action_types: list[str]) -> float:
+        """Soma valores de actions filtrados por tipo mantendo os decimais originais.
+
+        Args:
+            actions_list: Lista de dicts [{'action_type': str, 'value': str}].
+            action_types: Tipos de action a serem somados.
+
+        Returns:
+            Soma exata (float) dos valores encontrados.
+        """
+        if not isinstance(actions_list, list):
+            return 0.0
+        return sum(
+            float(a.get("value", 0))
             for a in actions_list
             if a.get("action_type") in action_types
         )
@@ -408423,7 +408590,218 @@ class DataCleaner:
             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
         )
         clean_df["valor_compra"] = action_values_safe.apply(
+            lambda x: self.extract_action_value_float(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        ).astype(float)
+
+
+        # --- VIDEO VIEWS ---
+        # 3s: vem como 'video_view' dentro da lista de actions
+        clean_df["videoview_3s"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["video_view"])
+        )
+        # 50% e 75%: vêm como campos raiz do DataFrame (são listas de actions)
+        for col_name, meta_field in [
+            ("videoview_50", "video_p50_watched_actions"),
+            ("videoview_75", "video_p75_watched_actions"),
+        ]:
+            if meta_field in df.columns:
+                clean_df[col_name] = df[meta_field].apply(
+                    lambda x: (
+                        self.extract_action_value(x, ["video_view"])
+                        if isinstance(x, list)
+                        else 0
+                    )
+                )
+            else:
+                clean_df[col_name] = 0
+
+        # -----------------------------------------------------------------
+        # 4. HASH ID ÚNICO (Chave do UPSERT)
+        # -----------------------------------------------------------------
+        def generate_hash(row: pd.Series) -> str:
+            base = f"{row['id_anuncio']}_{row['data_registro']}_{row['plataforma']}_{row['posicionamento']}"
+            return hashlib.md5(base.encode()).hexdigest()
+
+        clean_df["hash_id"] = clean_df.apply(generate_hash, axis=1)
+
+        return clean_df
+
+
+============================================================
+ARQUIVO: .\src\transformation\cleaner.py
+============================================================
+import hashlib
+import pandas as pd
+
+
+class DataCleaner:
+    """Transforma dados brutos da Meta Marketing API em DataFrame normalizado."""
+
+    def extract_action_value(self, actions_list: list, action_types: list[str], return_type=int) -> float | int:
+        """Soma valores de actions filtrados por tipo.
+
+        Args:
+            actions_list: Lista de dicts [{'action_type': str, 'value': str}].
+            action_types: Tipos de action a serem somados.
+            return_type: Tipo de retorno (int ou float, default: int).
+
+        Returns:
+            Soma dos valores encontrados em actions_list que batem com action_types.
+        """
+        if not isinstance(actions_list, list):
+            return 0 if return_type is int else 0.0
+        return sum(
+            return_type(float(a.get("value", 0)))
+            for a in actions_list
+            if a.get("action_type") in action_types
+        )
+
+    def transform(self, raw_data: list[dict]) -> pd.DataFrame:
+        """Recebe JSON bruto da API, retorna DataFrame com colunas normalizadas.
+
+        Fluxo:
+            1. Extrai campos de texto (IDs, nomes, breakdowns)
+            2. Converte métricas numéricas (spend, impressions)
+            3. Processa lista de actions para leads, cliques, seguidores e vídeos
+            4. Gera hash_id único para operação de UPSERT
+
+        Args:
+            raw_data: Lista de dicts retornada por MetaExtractor.get_ad_insights().
+
+        Returns:
+            DataFrame pronto para envio ao PostgresLoader.
+        """
+        if not raw_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(raw_data)
+        clean_df = pd.DataFrame()
+
+        # -----------------------------------------------------------------
+        # 1. CAMPOS DE TEXTO (IDs, Nomes e Breakdowns)
+        # -----------------------------------------------------------------
+        clean_df["id_anuncio"] = df["ad_id"]
+        clean_df["data_registro"] = df["date_start"]
+        clean_df["account_id"] = df["account_id"]
+        clean_df["nome_conta"] = df["account_name"]
+        clean_df["id_campanha"] = df.get("campaign_id", pd.Series(index=df.index, dtype=str))
+        clean_df["campanha"] = df["campaign_name"]
+        clean_df["id_conjunto_anuncios"] = df.get("adset_id", pd.Series(index=df.index, dtype=str))
+        clean_df["conjunto_anuncios"] = df.get("adset_name", pd.Series(index=df.index, dtype=str))
+        clean_df["anuncio"] = df["ad_name"]
+        clean_df["plataforma"] = df.get(
+            "publisher_platform", pd.Series("unknown", index=df.index)
+        ).fillna("unknown")
+        clean_df["posicionamento"] = df.get(
+            "platform_position", pd.Series("unknown", index=df.index)
+        ).fillna("unknown")
+
+        # -----------------------------------------------------------------
+        # 2. MÉTRICAS NUMÉRICAS DIRETAS
+        # -----------------------------------------------------------------
+        clean_df["valor_gasto"] = (
+            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0)
+        )
+        clean_df["impressoes"] = (
+            pd.to_numeric(df.get("impressions"), errors="coerce").fillna(0).astype(int)
+        )
+
+        # -----------------------------------------------------------------
+        # 3. TRATAMENTO SEGURO DE ACTIONS
+        # -----------------------------------------------------------------
+        actions_safe = df.get("actions", pd.Series(dtype=object)).apply(
+            lambda x: x if isinstance(x, list) else []
+        )
+        action_values_safe = df.get("action_values", pd.Series(dtype=object)).apply(
+            lambda x: x if isinstance(x, list) else []
+        )
+
+        # --- CLIQUES ---
+        cliques_inline = (
+            pd.to_numeric(df.get("inline_link_clicks"), errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+        cliques_actions = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["link_click"])
+        )
+        clean_df["clique_link"] = cliques_inline + cliques_actions
+
+        outbound_clicks = df.get("outbound_clicks", pd.Series(dtype=object)).apply(
+            lambda x: self.extract_action_value(x, ["outbound_click"]) if isinstance(x, list) else 0
+        )
+        clean_df["cliques_saida"] = outbound_clicks
+
+        # --- LEADS (3 origens unificadas) ---
+        # Formulário: leads gerados dentro do Facebook/Instagram
+        clean_df["lead_formulario"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["lead", "onsite_conversion.lead_grouped", "onsite_conversion.lead"]
+            )
+        )
+        # Site/Pixel: leads capturados via pixel no site externo
+        clean_df["lead_site"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_web_lead", "offsite_conversion.fb_pixel_lead"]
+            )
+        )
+        # Mensagem: conversas iniciadas e contatos (agrupado para manter compatibilidade com lead_mensagem e preencher as novas colunas)
+        clean_df["conversas_iniciadas"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_conversation_started_7d"]
+            )
+        )
+        clean_df["novos_contatos_mensagem"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x, ["onsite_conversion.messaging_first_reply"]
+            )
+        )
+        clean_df["lead_mensagem"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x,
+                [
+                    "onsite_conversion.messaging_first_reply",
+                    "onsite_conversion.total_messaging_connection",
+                ],
+            )
+        )
+        # Total consolidado
+        clean_df["lead"] = (
+            clean_df["lead_formulario"]
+            + clean_df["lead_site"]
+            + clean_df["lead_mensagem"]
+        )
+
+        # --- SEGUIDORES E PERFIL ---
+        clean_df["seguidores_instagram"] = actions_safe.apply(
+            lambda x: self.extract_action_value(
+                x,
+                [
+                    "onsite_conversion.post_save_follow",
+                    "instagram_follower_count_total",
+                    "page_like",
+                ],
+            )
+        )
+        clean_df["visitas_perfil"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["instagram_profile_views"])
+        )
+
+        # --- CONVERSÕES DE E-COMMERCE / PERFORMANCE ---
+        clean_df["lp_view"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["landing_page_view"])
+        )
+        clean_df["contato"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["contact", "offsite_conversion.fb_pixel_contact"])
+        )
+        clean_df["initiate_checkout"] = actions_safe.apply(
+            lambda x: self.extract_action_value(x, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"])
+        )
+        clean_df["compras"] = actions_safe.apply(
             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+        )
+        clean_df["valor_compra"] = action_values_safe.apply(
+            lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"], return_type=float)
         ).astype(float)
 
 

@@ -1,0 +1,32 @@
+﻿commit b00478c07d66e92d2044733ec95b913fb755a5cf
+Author: luanazevedo7 <euluangomes7@gmail.com>
+Date:   Sun Mar 22 00:09:07 2026 -0300
+
+    feat: enhance metric precision and add historical reprocessing utility
+    
+    - Removed .round(2) from cleaner.py for valor_gasto and valor_compra to preserve full decimal precision.
+    - Updated MetaExtractor to support custom 'time_range' parameter.
+    - Added scripts/reprocess_history.py to fetch data from Nov 2025 onwards and update historical database records with full precision values via UPSERT.
+
+diff --git a/src/transformation/cleaner.py b/src/transformation/cleaner.py
+index 07ede60..b377839 100644
+--- a/src/transformation/cleaner.py
++++ b/src/transformation/cleaner.py
+@@ -67,7 +67,7 @@ class DataCleaner:
+         # 2. M├ëTRICAS NUM├ëRICAS DIRETAS
+         # -----------------------------------------------------------------
+         clean_df["valor_gasto"] = (
+-            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0).round(2)
++            pd.to_numeric(df.get("spend"), errors="coerce").fillna(0)
+         )
+         clean_df["impressoes"] = (
+             pd.to_numeric(df.get("impressions"), errors="coerce").fillna(0).astype(int)
+@@ -169,7 +169,7 @@ class DataCleaner:
+         )
+         clean_df["valor_compra"] = action_values_safe.apply(
+             lambda x: self.extract_action_value(x, ["purchase", "offsite_conversion.fb_pixel_purchase"])
+-        ).astype(float).round(2)
++        ).astype(float)
+ 
+ 
+         # --- VIDEO VIEWS ---

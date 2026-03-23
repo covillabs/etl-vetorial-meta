@@ -61,9 +61,11 @@ The pipeline populates the `insights_meta_ads` table, designed for high-performa
 | `hash_id` | `VARCHAR(32)` | **Primary Key.** MD5 hash for idempotency. |
 | `id_anuncio` | `BIGINT` | Meta Ad ID. |
 | `data_registro` | `DATE` | The date the performance occurred. |
-| `spend` | `NUMERIC` | Amount spent in account currency. |
-| `leads_total` | `INTEGER` | Unified sum of Form, Site, and Message leads. |
-| `seguidores` | `INTEGER` | Instagram followers attributed to the ad. |
+| `valor_gasto` | `NUMERIC` | Amount spent in account currency (exact API decimal value). |
+| `valor_compra` | `NUMERIC` | Revenue from purchases (exact API decimal value). |
+| `compras` | `INTEGER` | Total purchase events tracked. |
+| `lead` | `INTEGER` | Unified sum of Form, Site, and Message leads. |
+| `seguidores_instagram` | `INTEGER` | Instagram followers attributed to the ad. |
 | `plataforma` | `VARCHAR` | Facebook, Instagram, Messenger, or Audience Network. |
 | `posicionamento`| `VARCHAR` | Feed, Stories, Reels, etc. |
 
@@ -89,6 +91,7 @@ With this structured data, organizations can answer:
 *   **Attribution Drift:** "How many leads are credited to ads 7+ days after the click?"
 
 ## 9. Lessons Learned (Meta API Quirks)
+*   **Decimal Precision in Financial Metrics:** Meta's `actions` array for events like purchases embeds the conversion value as strings ("value": "150.25"). Extracting these values safely requires exact float conversion, preventing integer truncation in analytics.
 *   **Field Fragmentation:** Some metrics like `link_clicks` appear both as root fields and inside the `actions` array. We prioritize the sum of both for maximum accuracy.
 *   **Rate Limiting:** Sequential processing with small sleep intervals (2s) is more reliable than aggressive parallel threading, which often triggers Meta's app-level rate limits.
 *   **Timezone Alignment:** Always force `TZ=America/Sao_Paulo` (or your local TZ) in Docker to avoid "shifted day" metrics where clicks at 11:59 PM land on the wrong date.
